@@ -1,0 +1,7 @@
+torch
+torchvision
+diffusers
+matplotlib
+einops
+datasets
+-e git+https://github.com/toshas/torch-fidelity.git@master#egg=torch-fidelity
