@@ -2,7 +2,7 @@ import math
 from enum import Enum
 from inspect import isfunction
 from functools import partial
-
+import datetime
 import matplotlib.pyplot as plt
 from tqdm.auto import tqdm
 from einops import rearrange, reduce, repeat
@@ -14,15 +14,26 @@ import torch.nn.functional as F
 
 
 class HowTo_t(Enum):
-    input_t = ''
+    input_t = 'input_t'
     input_no_t = 'no_t'
     predict_t = 'predict_t'
 
 
+today = datetime.date.today().strftime("%m%d")
+hourmin = datetime.datetime.now().strftime("%H%M")
+
 how_to_t = HowTo_t.predict_t
-pretrain_model_name = f'model_FashionMNIST_{str(how_to_t.value)}_0621.pth'
-# pretrain_model_name = None
-save_model_name = f'model_FashionMNIST_{str(how_to_t.value)}_0621.pth'
+# pretrain_model_name = f'model_FashionMNIST_{str(how_to_t.value)}_0621.pth'
+pretrain_model_name = "FashionMNIST_predict_t_0625_0959_step8424.pth"#"FashionMNIST_input_t_0625_step8424.pth" #"FashionMNIST_predict_t_0625_0959_step8424.pth" # "FashionMNIST_predict_t_0625_step2808.pth" # "FashionMNIST_input_t_0625_2808.pth"
+
+
+def save_model_name(step: int | str | None = None):
+    if step is None:
+        return f'FashionMNIST_{str(how_to_t.value)}_{today}_{hourmin}.pth'
+    elif isinstance(step, int):
+        return f'FashionMNIST_{str(how_to_t.value)}_{today}_{hourmin}_step{step}.pth'
+    else:
+        return f'FashionMNIST_{str(how_to_t.value)}_{today}_{hourmin}_{step}.pth'
 
 
 def exists(x):

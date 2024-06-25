@@ -21,15 +21,13 @@ from schedule import ScheduleDDPM as Schedule
 from utils import num_to_groups, clamp
 
 root_dir = os.path.dirname(os.path.abspath(__file__))
-fake_folder = Path("./results/evaluate/fake").absolute()
-real_folder = Path("./results/evaluate/real").absolute()
-train_folder = Path("./results/evaluate/train").absolute()
+fake_folder = Path("./evaluate/fake").absolute()
+real_folder = Path("./evaluate/real").absolute()
+
 vmeory = round(torch.cuda.get_device_properties(0).total_memory / (1024 ** 3))
 
 
-def build_fake_data():
-    # hyperparameters
-
+def build_fake_data(model_):
     assert torch.cuda.is_available()
     device = "cuda"
     schedule_fn = Schedule.schedule_fn
@@ -42,16 +40,18 @@ def build_fake_data():
     if not fake_folder.exists():
         os.makedirs(fake_folder)
     # model && schedule
-    model = Unet(
-        dim=image_size,
-        channels=channels,
-        dim_mults=(1, 2, 4,),
-        out_dim=channels + 1 if how_to_t == HowTo_t.predict_t else None
-    ).to(device)
     # load the model from pretrained
-    if pretrain_model_name is not None:
-        model.load_state_dict(torch.load(pretrain_model_name))
-    print(f"model loaded from {pretrain_model_name}")
+    if isinstance(model_, str):
+        model = Unet(
+            dim=image_size,
+            channels=channels,
+            dim_mults=(1, 2, 4,),
+            out_dim=channels + 1 if how_to_t == HowTo_t.predict_t else None
+        ).to(device)
+        model.load_state_dict(torch.load(model_))
+        print(f"model loaded from {model_}")
+    else:
+        model = model_
 
     schedule = Schedule(schedule_fn=schedule_fn, ddpm_T=T)
 
@@ -107,9 +107,8 @@ def build_real_data():
     real_imgs = []
 
     if real_folder.exists() and real_folder.is_dir():
-        shutil.rmtree(real_folder)
-    if not real_folder.exists():
-        os.makedirs(real_folder)
+        return
+    real_folder.mkdir(parents=True, exist_ok=True)
 
     for i in tqdm(range(len(test_data)), desc='Loading real images'):
         img, label = test_data[i]
@@ -124,32 +123,8 @@ def build_real_data():
         executor.map(save_img, tqdm(enumerate(real_imgs), desc='Saving real images'))
 
 
-def build_train_data():
-    global train_folder
-    train_imgs = []
-
-    if train_folder.exists() and train_folder.is_dir():
-        shutil.rmtree(train_folder)
-    if not train_folder.exists():
-        os.makedirs(train_folder)
-
-    for i in tqdm(range(len(training_data)), desc='Loading train images'):
-        img, label = test_data[i]
-        img = (img + 1.) / 2.
-        train_imgs.append(img)
-        if len(train_imgs) == 128:
-            break
-
-    def save_img(index_img_tuple):
-        index, im = index_img_tuple
-        save_image(im, os.path.join(train_folder, f'{index}.png'))
-
-    with ThreadPoolExecutor() as executor:
-        executor.map(save_img, tqdm(enumerate(train_imgs), desc='Saving train images'))
-
-
-if __name__ == "__main__":
-    build_fake_data()
+def evaluate(step, model_: None | str = None):
+    build_fake_data(model_)
     build_real_data()
     # build_train_data()
     metrics_dict = torch_fidelity.calculate_metrics(
@@ -168,6 +143,10 @@ if __name__ == "__main__":
         kid=False,
     )
     print(metrics_dict)
+
+
+if __name__ == "__main__":
+    evaluate(0, pretrain_model_name)
 
 """
 T=300,input with t

@@ -3,13 +3,15 @@ import warnings
 import os
 from pathlib import Path
 import shutil
+import datetime
 
 import torch
 from einops import rearrange
 from torch.optim import Adam
-
 from torchvision.utils import save_image
+
 from tqdm import tqdm
+import wandb
 
 from model import Unet, save_model_name, pretrain_model_name, how_to_t, HowTo_t
 from schedule import ScheduleDDPM as Schedule
@@ -26,12 +28,35 @@ if not results_folder.exists():
 
 assert torch.cuda.is_available()
 device = "cuda"
-epochs = 6
+epochs = 6 * 3
 T = Schedule.T
 batch_size = 128  # 64
 learning_rate = 1e-3
 schedule_fn = Schedule.schedule_fn
 save_and_sample_every = 1000 // 1
+
+wandb.login()
+run = wandb.init(
+    # Set the project where this run will be logged
+    project="timestep-free-diffusion-model",
+    entity="fenneishi",
+    name=save_model_name(f'withpretrain_time{datetime.datetime.now().strftime("%H%M")}'),
+    # Track hyperparameters and run metadata
+    config={
+        "learning_rate": learning_rate,
+        "batch_size": batch_size,
+        "epochs": epochs,
+        "T": T,
+        "schedule_fn": schedule_fn,
+        "save_and_sample_every": save_and_sample_every,
+        "model": "Unet",
+        "image_size": image_size,
+        "channels": channels,
+        "how_to_t": how_to_t,
+        "pretrain_model_name": pretrain_model_name,
+        "save_model_name": save_model_name(),
+    },
+)
 
 print(
     f'######################################\n'
@@ -40,7 +65,7 @@ print(
     f'batch_size: {batch_size}\n'
     f'learning_rate: {learning_rate} \n'
     f'pretrain_model_name: {pretrain_model_name}\n'
-    f'save_model_name: {save_model_name}\n'
+    f'save_model_name: {save_model_name()}\n'
     f'how_to_t: {how_to_t}\n'
     f'channels: {channels}\n'
     f'image_size: {image_size}\n'
@@ -107,8 +132,9 @@ def evaluate(force=False):
 
 def save_model():
     if save_model_name is not None:
-        torch.save(model.state_dict(), save_model_name)
-        print("Epoch", epoch, f"completed,saving model to {save_model_name}")
+        model_name = save_model_name(step)
+        torch.save(model.state_dict(), model_name)
+        print("Epoch", epoch, f"completed,saving model to {model_name}")
 
 
 loss_log = None
@@ -141,13 +167,19 @@ for epoch in range(epochs):
         # loss
         loss = loss_f(
             noise=noise, predicted_noise=predicted_noise,
+            step=step,
             t=t, predicted_t=predicted_t,
             loss_type="huber"
         )
+        # if predicted_t is not None:
+        # noise_loss, loss = loss
+        # wandb.log(data={"loss": noise_loss.item()}, step=step)
+        # else:
+        #     wandb.log(data={"loss": loss.item()}, step=step)
 
-        loss_log = loss.item() if loss_log is None else 0.99 * loss_log + 0.01 * loss.item()
-        if step % 10 == 0:
-            print(f"smooth loss at step {step}:{loss_log:.5f}[{loss.item():.5f}]")
+        # loss_log = loss.item() if loss_log is None else 0.99 * loss_log + 0.01 * loss.item()
+        # if step % 10 == 0:
+        #     print(f"smooth loss at step {step}:{loss_log:.5f}[{loss.item():.5f}]")
         loss.backward()
         optimizer.step()
         evaluate()
@@ -156,3 +188,4 @@ for epoch in range(epochs):
 
 save_model()
 evaluate(force=True)
+wandb.finish()

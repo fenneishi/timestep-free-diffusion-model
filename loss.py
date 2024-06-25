@@ -1,9 +1,11 @@
 import torch.nn.functional as F
 from einops import rearrange
+import wandb
 
 
 def loss_f(
         noise, predicted_noise,
+        step,
         t=None, predicted_t=None,
         loss_type="huber"):
     loss_fn = {
@@ -13,6 +15,7 @@ def loss_f(
     }[loss_type]
 
     loss = loss_fn(noise, predicted_noise)
+    wandb.log(data={"loss": loss.item()},step=step)
     if t is not None and predicted_t is not None:
         t = rearrange(t, 'b ... -> b 1 1 1 ...')
         t = (t / 1000.0) * 2 - 1.0
