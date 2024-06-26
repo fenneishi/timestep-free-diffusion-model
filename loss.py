@@ -15,7 +15,8 @@ def loss_f(
     }[loss_type]
 
     loss = loss_fn(noise, predicted_noise)
-    wandb.log(data={"loss": loss.item()},step=step)
+    if step % 10 == 0:
+        wandb.log(data={"loss": loss.item()},step=step)
     if t is not None and predicted_t is not None:
         t = rearrange(t, 'b ... -> b 1 1 1 ...')
         t = (t / 1000.0) * 2 - 1.0

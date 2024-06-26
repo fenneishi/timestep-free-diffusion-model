@@ -3,6 +3,7 @@ from enum import Enum
 from inspect import isfunction
 from functools import partial
 import datetime
+import pytz
 import matplotlib.pyplot as plt
 from tqdm.auto import tqdm
 from einops import rearrange, reduce, repeat
@@ -18,13 +19,14 @@ class HowTo_t(Enum):
     input_no_t = 'no_t'
     predict_t = 'predict_t'
 
-
-today = datetime.date.today().strftime("%m%d")
-hourmin = datetime.datetime.now().strftime("%H%M")
+timezone = pytz.timezone('Asia/Shanghai')
+today = datetime.datetime.now(timezone).date().strftime("%m%d")
+hourmin = datetime.datetime.now(timezone).strftime("%H%M")
 
 how_to_t = HowTo_t.predict_t
 # pretrain_model_name = f'model_FashionMNIST_{str(how_to_t.value)}_0621.pth'
-pretrain_model_name = "FashionMNIST_predict_t_0625_0959_step8424.pth"#"FashionMNIST_input_t_0625_step8424.pth" #"FashionMNIST_predict_t_0625_0959_step8424.pth" # "FashionMNIST_predict_t_0625_step2808.pth" # "FashionMNIST_input_t_0625_2808.pth"
+# pretrain_model_name = "FashionMNIST_predict_t_0625_0959_step8424.pth"#"FashionMNIST_input_t_0625_step8424.pth" #"FashionMNIST_predict_t_0625_0959_step8424.pth" # "FashionMNIST_predict_t_0625_step2808.pth" # "FashionMNIST_input_t_0625_2808.pth"
+pretrain_model_name = None
 
 
 def save_model_name(step: int | str | None = None):

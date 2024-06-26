@@ -3,6 +3,7 @@ import shutil
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import warnings
+from typing import Callable
 
 warnings.filterwarnings("ignore", category=UserWarning, module='torch_fidelity.datasets')
 
@@ -12,78 +13,72 @@ from einops import repeat
 from torch.utils.data import Dataset
 from torchvision.utils import save_image
 from tqdm import tqdm
+import wandb
 
 # from dataset_CIFAR10 import test_data, training_data, channels, image_size
-from dataset_FashionMNIST import test_data, training_data, channels, image_size
+from dataset_FashionMNIST import test_data, channels, image_size
 
 from model import Unet, pretrain_model_name, how_to_t, HowTo_t
 from schedule import ScheduleDDPM as Schedule
 from utils import num_to_groups, clamp
 
-root_dir = os.path.dirname(os.path.abspath(__file__))
+evaluate_folder = Path("./evaluate").absolute()
 fake_folder = Path("./evaluate/fake").absolute()
 real_folder = Path("./evaluate/real").absolute()
+FakeImgsCount = 10000
 
 vmeory = round(torch.cuda.get_device_properties(0).total_memory / (1024 ** 3))
 
 
-def build_fake_data(model_):
+@torch.no_grad()
+def build_fake_data(model: torch.nn.Module | Callable):
     assert torch.cuda.is_available()
-    device = "cuda"
+
+    # config
     schedule_fn = Schedule.schedule_fn
     T = Schedule.T
-    global fake_folder
 
-    fake_imgs = []
+    # clear fake folder
+    global fake_folder
     if fake_folder.exists() and fake_folder.is_dir():
         shutil.rmtree(fake_folder)
-    if not fake_folder.exists():
-        os.makedirs(fake_folder)
-    # model && schedule
-    # load the model from pretrained
-    if isinstance(model_, str):
-        model = Unet(
-            dim=image_size,
-            channels=channels,
-            dim_mults=(1, 2, 4,),
-            out_dim=channels + 1 if how_to_t == HowTo_t.predict_t else None
-        ).to(device)
-        model.load_state_dict(torch.load(model_))
-        print(f"model loaded from {model_}")
-    else:
-        model = model_
+    os.makedirs(fake_folder, exist_ok=False)
 
+    # schedule
     schedule = Schedule(schedule_fn=schedule_fn, ddpm_T=T)
 
-    # generate images and save them
+    # batch sizes
+    batch_sizes = num_to_groups(FakeImgsCount, 1024 * 4)
 
-    for b in tqdm(
-            num_to_groups(10000, 1024 * 4),
-            desc='Generating fake images'
-    ):
-        imgs = schedule.p_sample_loop(
+    # generate images and save them
+    def gen_imgs(batch_size: int) -> list[torch.Tensor]:
+        res = schedule.p_sample_loop(
             model=model,
-            shape=(b, channels, image_size, image_size)
-        )[-1]
+            shape=(batch_size, channels, image_size, image_size)
+        )
+        # batch_diffusion_imgs = [[bc[i] for bc in res] for i in range(64)]
+        # batch_diffusion_imgs = [(torch.stack(i) + 1) * 0.5 for i in batch_diffusion_imgs]
+        # for i, img in tqdm(enumerate(batch_diffusion_imgs)):
+        #     save_image(img, os.path.join(results_folder, f'diffusion_{i}.png'), nrow=50)
+        imgs = res[-1]
         imgs = (imgs + 1) / 2
         if channels == 1:
             imgs = repeat(imgs, 'b 1 h w -> b 3 h w')
-        imgs = [img for img in imgs]
-        fake_imgs += imgs
+        return [img for img in imgs]
 
-    def save_img(index_img_tuple):
-        index, img = index_img_tuple
-        # save_image(img, str(evaluate_folder / f'gen_{index}.png'))
-        save_image(img, os.path.join(fake_folder, f'{index}.png'))
+    def save_img(name_img_tuple: tuple[str | int, torch.Tensor]) -> None:
+        name, img = name_img_tuple
+        save_image(img, os.path.join(fake_folder, f'{name}.png'))
+
+    fake_imgs = []
+    for b in tqdm(batch_sizes, desc='Generating and saving generated images'):
+        fake_imgs += gen_imgs(b)
 
     with ThreadPoolExecutor() as executor:
-        executor.map(
-            save_img,
-            tqdm(
-                enumerate(fake_imgs),
-                desc='Saving fake images'
-            )
-        )
+        save_tasks = [(f'gen_{1:07d}', img) for i, img in enumerate(fake_imgs)]
+        executor.map(save_img, save_tasks)
+
+    return fake_imgs
 
 
 class EvalDataset(Dataset):
@@ -91,6 +86,7 @@ class EvalDataset(Dataset):
         super().__init__()
         self.imgs = test_data
 
+    @torch.no_grad()
     def __getitem__(self, index):
         img, label = self.imgs[index]
         img = (((img + 1) / 2) * 255).to(torch.uint8).clamp_(0, 255)
@@ -102,6 +98,7 @@ class EvalDataset(Dataset):
         return len(self.imgs)
 
 
+@torch.no_grad()
 def build_real_data():
     global real_folder
     real_imgs = []
@@ -123,10 +120,19 @@ def build_real_data():
         executor.map(save_img, tqdm(enumerate(real_imgs), desc='Saving real images'))
 
 
-def evaluate(step, model_: None | str = None):
-    build_fake_data(model_)
+def evaluate(model: torch.nn.Module | Callable, step: int = 0):
+    print(f"evaluating at step {step}")
+
+    fake_imgs = build_fake_data(model)
+
+    # visualize fake images
+    visualize = os.path.join(evaluate_folder, f"sample_{step}.png")
+    save_image(torch.stack(fake_imgs[:64]), visualize)
+    wandb.log({"fake_imgs": [wandb.Image(visualize)]}, step=step)
+    del fake_imgs
+
     build_real_data()
-    # build_train_data()
+
     metrics_dict = torch_fidelity.calculate_metrics(
         # fake data
         input1=str(fake_folder),
@@ -142,11 +148,35 @@ def evaluate(step, model_: None | str = None):
         prc=True,
         kid=False,
     )
+    wandb.log(metrics_dict, step=step)
+    # {'inception_score_mean': 4.148801176711407, 'inception_score_std': 0.041404909234431596,
+    #  'frechet_inception_distance': 34.29237695877276, 'precision': 0.4097000062465668, 'recall': 0.7635999917984009,
+    #  'f_score': 0.5332769486592858}
     print(metrics_dict)
 
 
 if __name__ == "__main__":
-    evaluate(0, pretrain_model_name)
+    model = Unet(
+        dim=image_size,
+        channels=channels,
+        dim_mults=(1, 2, 4,),
+        out_dim=channels + 1 if how_to_t == HowTo_t.predict_t else None
+    ).to("cuda")
+    model.load_state_dict(torch.load(pretrain_model_name))
+    print(f"model loaded from {pretrain_model_name}")
+
+
+    @torch.no_grad()
+    def call_model(*args, **kwargs):
+        predicted: torch.Tensor = model(*args, **kwargs)
+        if how_to_t == HowTo_t.predict_t:
+            predicted, predicted_t = predicted[:, :-1, :, :], predicted[:, -1:, :, :]
+            # print(f"predicted_t: {1- (predicted_t.mean().item() + 1) / 2}")
+        return predicted
+
+
+    print(f"model loaded from {pretrain_model_name}")
+    evaluate(call_model)
 
 """
 T=300,input with t
