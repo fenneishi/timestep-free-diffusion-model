@@ -71,12 +71,17 @@ def build_fake_data(model: torch.nn.Module | Callable):
         save_image(img, os.path.join(fake_folder, f'{name}.png'))
 
     fake_imgs = []
-    for b in tqdm(batch_sizes, desc='Generating and saving generated images'):
+    for b in tqdm(batch_sizes, desc='Generating images'):
         fake_imgs += gen_imgs(b)
 
-    with ThreadPoolExecutor() as executor:
-        save_tasks = [(f'gen_{i:07d}', img) for i, img in enumerate(fake_imgs)]
-        executor.map(save_img, save_tasks)
+    # with ThreadPoolExecutor() as executor:
+    #     save_tasks = [(f'gen_{i:07d}', img) for i, img in enumerate(fake_imgs)]
+    #     executor.map(save_img, save_tasks)
+    save_tasks = [(f'gen_{i:07d}', img) for i, img in enumerate(fake_imgs)]
+    for name, img in tqdm(save_tasks, desc='Saving images'):
+        save_image(img, os.path.join(fake_folder, f'{name}.png'))
+
+    print(f"fake images saved to {fake_folder}")
 
     return fake_imgs
 

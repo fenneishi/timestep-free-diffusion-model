@@ -62,16 +62,6 @@ print(
     f'run_id: {run.id}\n'
     f'run_name: {run.name}\n'
     f'run_config: {run.config}\n'
-    # f'epochs: {epochs}\n'
-    # f'T: {T}\n'
-    # f'batch_size: {batch_size}\n'
-    # f'learning_rate: {learning_rate} \n'
-    # f'pretrain_model_name: {pretrain_model_name}\n'
-    # f'save_model_name: {save_model_name()}\n'
-    # f'how_to_t: {str(how_to_t.value)}\n'
-    # f'channels: {channels}\n'
-    # f'image_size: {image_size}\n'
-    # f'schedule_fn: {schedule_fn.__name__}\n'
     f'\n######################################'
 )
 
@@ -110,7 +100,7 @@ def evaluate_model():
     model.eval()
     evaluate(call_model, step)
     model.train()
-    print(f'Evaluating model at step {step}')
+
 
 
 def save_model():
