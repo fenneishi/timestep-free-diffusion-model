@@ -75,7 +75,7 @@ def build_fake_data(model: torch.nn.Module | Callable):
         fake_imgs += gen_imgs(b)
 
     with ThreadPoolExecutor() as executor:
-        save_tasks = [(f'gen_{1:07d}', img) for i, img in enumerate(fake_imgs)]
+        save_tasks = [(f'gen_{i:07d}', img) for i, img in enumerate(fake_imgs)]
         executor.map(save_img, save_tasks)
 
     return fake_imgs
