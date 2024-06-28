@@ -1,30 +1,28 @@
-import logging
-import warnings
+
 import os
 from pathlib import Path
 import shutil
-import datetime
+
 
 import torch
-from einops import rearrange
 from torch.optim import Adam
-from torchvision.utils import save_image
+
 
 from tqdm import tqdm
 import wandb
 
 from model import Unet, save_model_name, pretrain_model_name, how_to_t, HowTo_t
+from dataset_FashionMNIST import build_data, image_size, channels
 from schedule import ScheduleDDPM as Schedule
 from loss import loss_f
-from dataset_FashionMNIST import build_data, image_size, channels
-from utils import noise_like
 from evaluate import evaluate
+from utils import noise_like
 
-results_folder = Path("./results").absolute()
-if results_folder.exists() and results_folder.is_dir():
-    shutil.rmtree(results_folder)
-if not results_folder.exists():
-    os.makedirs(results_folder)
+# results_folder = Path("./results").absolute()
+# if results_folder.exists() and results_folder.is_dir():
+#     shutil.rmtree(results_folder)
+# if not results_folder.exists():
+#     os.makedirs(results_folder)
 
 assert torch.cuda.is_available()
 device = "cuda"
@@ -37,11 +35,9 @@ save_and_evaluate_every = 1000 // 1
 
 wandb.login()
 run = wandb.init(
-    # Set the project where this run will be logged
     project="timestep-free-diffusion-model",
     entity="fenneishi",
     name=save_model_name(f'scratch')[0:-4],
-    # Track hyperparameters and run metadata
     config={
         "learning_rate": learning_rate,
         "batch_size": batch_size,
@@ -84,12 +80,8 @@ def call_model(*args, **kwargs):
     predicted: torch.Tensor = model(*args, **kwargs)
     if how_to_t == HowTo_t.predict_t:
         predicted_noise, predicted_t = predicted[:, :-1, :, :], predicted[:, -1:, :, :]
-        predicted_t_show = ((predicted_t.mean().item() + 1) / 2) * 1000
-        predicted_t_show = (1000 - predicted_t_show) / 1000
-        # to percentage
-        predicted_t_show = int(predicted_t_show * 100)
-        print(f"predicted_t: {predicted_t_show}%")
         predicted = predicted_noise
+        # print(f"predicted_t: {1- (predicted_t.mean().item() + 1) / 2}")
     return predicted
 
 
@@ -110,7 +102,7 @@ def save_model():
 
 
 for epoch in range(epochs):
-    for x_0, _ in dataloader:
+    for x_0, _ in tqdm(dataloader, desc=f"epoch {epoch}"):
         optimizer.zero_grad()
 
         # x_0

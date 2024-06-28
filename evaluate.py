@@ -1,5 +1,6 @@
 import os
 import shutil
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import warnings
@@ -42,6 +43,7 @@ def build_fake_data(model: torch.nn.Module | Callable):
     global fake_folder
     if fake_folder.exists() and fake_folder.is_dir():
         shutil.rmtree(fake_folder)
+        # subprocess.call(['rm', '-rf', fake_folder])
     os.makedirs(fake_folder, exist_ok=False)
 
     # schedule

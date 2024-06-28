@@ -207,6 +207,7 @@ class ScheduleDDIM(ScheduleDDPM):
             ddim_discretize: str = "uniform",
             ddim_eta: float = 0.
     ):
+        raise NotImplementedError("DDIM is not implemented yet")
         super().__init__(schedule_fn, ddpm_steps)
 
         self.ddim_steps = ddim_steps
