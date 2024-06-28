@@ -1,12 +1,10 @@
-
 import os
+import warnings
 from pathlib import Path
 import shutil
 
-
 import torch
 from torch.optim import Adam
-
 
 from tqdm import tqdm
 import wandb
@@ -38,6 +36,7 @@ run = wandb.init(
     project="timestep-free-diffusion-model",
     entity="fenneishi",
     name=save_model_name(f'scratch')[0:-4],
+    # mode="disabled",
     config={
         "learning_rate": learning_rate,
         "batch_size": batch_size,
@@ -52,6 +51,12 @@ run = wandb.init(
         "save_model_name": save_model_name(),
     },
 )
+if run.mode == "disabled":
+    warnings.warn("wandb is disabled, no logging will be done")
+elif run.mode == "offline":
+    warnings.warn("wandb is offline, logging will be done but not visible in the dashboard")
+else:
+    print(f"wandb is enabled, wandb.mode: {run.mode}")
 
 print(
     f'######################################\n'
@@ -92,7 +97,6 @@ def evaluate_model():
     model.eval()
     evaluate(call_model, step)
     model.train()
-
 
 
 def save_model():
