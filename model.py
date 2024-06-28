@@ -23,7 +23,7 @@ timezone = pytz.timezone('Asia/Shanghai')
 today = datetime.datetime.now(timezone).date().strftime("%m%d")
 hourmin = datetime.datetime.now(timezone).strftime("%H%M")
 
-how_to_t = HowTo_t.predict_t
+how_to_t = HowTo_t.input_no_t
 # pretrain_model_name = f'model_FashionMNIST_{str(how_to_t.value)}_0621.pth'
 # pretrain_model_name = "FashionMNIST_predict_t_0625_0959_step8424.pth"#"FashionMNIST_input_t_0625_step8424.pth" #"FashionMNIST_predict_t_0625_0959_step8424.pth" # "FashionMNIST_predict_t_0625_step2808.pth" # "FashionMNIST_input_t_0625_2808.pth"
 pretrain_model_name = None

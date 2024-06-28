@@ -18,7 +18,7 @@ import wandb
 # from dataset_CIFAR10 import test_data, training_data, channels, image_size
 from dataset_FashionMNIST import test_data, channels, image_size
 
-from model import Unet, pretrain_model_name, how_to_t, HowTo_t
+
 from schedule import ScheduleDDPM as Schedule
 from utils import num_to_groups, clamp
 
@@ -161,6 +161,7 @@ def evaluate(model: torch.nn.Module | Callable, step: int = 0):
 
 
 if __name__ == "__main__":
+    from model import Unet, pretrain_model_name, how_to_t, HowTo_t
     model = Unet(
         dim=image_size,
         channels=channels,
@@ -183,70 +184,12 @@ if __name__ == "__main__":
     print(f"model loaded from {pretrain_model_name}")
     evaluate(call_model)
 
-"""
-T=300,input with t
-{
-    'inception_score_mean': 4.012789100944213, 
-    'inception_score_std': 0.0832336997197499, 
-    'frechet_inception_distance': 30.942926437637368, 
-    'precision': 0.4952999949455261, 
-    'recall': 0.6886000037193298, 
-    'f_score': 0.576169573015133
-}
-T=1000,input with t
-{
-    'inception_score_mean': 4.2865708800405775, 
-    'inception_score_std': 0.08070050760798674, 
-    'frechet_inception_distance': 28.816080882236122, 
-    'precision': 0.35830000042915344,
-    'recall': 0.7106999754905701, 
-    'f_score': 0.47641498084073497
-}
-T=1000,input{   
-    'inception_score_mean': 3.9877652116655478, 
-    'inception_score_std': 0.08303174412055173, 
-    'frechet_inception_distance': 20.092534537450263, 
-    'precision': 0.49300000071525574, 'recall': 0.7110999822616577, 
-    'f_score': 0.582297644248596
-} without t
-
-T=1000,input with t,dataset_CIFAR10
-{
-    'inception_score_mean': 4.489414021731528, 
-    'inception_score_std': 0.10001167169569403, 
-    'frechet_inception_distance': 81.06440838228718, 
-    'precision': 0.040800001472234726, 
-    'recall': 0.7907000184059143, 
-    'f_score': 0.07759605807293884
-}
-T=1000,input with t,dataset_CIFAR10,
-{   
-    'inception_score_mean': 5.91294293357287, 
-    'inception_score_std': 0.0918314265547397, 
-    'frechet_inception_distance': 47.74804861197089, 
-    'precision': 0.17589999735355377, 
-    'recall': 0.8133999705314636, 
-    'f_score': 0.2892490797705039
-}
-T=1000,input with t,learning rate 1e-3 1e-4 1e-5 1e-6,more train
-{
-    'inception_score_mean': 4.250638325513722, 
-    'inception_score_std': 0.11893020987160077, 
-    'frechet_inception_distance': 8.519418311322795, 
-    'precision': 0.5543000102043152, 
-    'recall': 0.786899983882904, 
-    'f_score': 0.6504304667745237
-}
-T=1000,input without(70% **0.25) t,learning rate 1e-3,
-            t_signal = torch.clamp(((700 - torch.clamp(t_signal,0,700)) / 700) ** 0.25, 0, 1).detach()
-            t_noise = torch.randn_like(t).detach()  # remove this line to use the time embeddings
-            t = t_signal*t + (1 - t_signal)*t_noise
-{
-    'inception_score_mean': 4.171455520414709, 
-    'inception_score_std': 0.04308712302956141, 
-    'frechet_inception_distance': 24.81214031140746, 
-    'precision': 0.40689998865127563, 
-    'recall': 0.7175999879837036,
-    'f_score': 0.519326692812386
-}
-"""
+# T=1000,input with t,learning rate decay 1e-3 1e-4 1e-5 1e-6,more train
+# {
+#     'inception_score_mean': 4.250638325513722,
+#     'inception_score_std': 0.11893020987160077,
+#     'frechet_inception_distance': 8.519418311322795,
+#     'precision': 0.5543000102043152,
+#     'recall': 0.786899983882904,
+#     'f_score': 0.6504304667745237
+# }
