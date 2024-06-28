@@ -23,9 +23,9 @@ from dataset_FashionMNIST import test_data, channels, image_size
 from schedule import ScheduleDDPM as Schedule
 from utils import num_to_groups, clamp
 
-evaluate_folder = Path("./evaluate").absolute()
-fake_folder = Path("./evaluate/fake").absolute()
-real_folder = Path("./evaluate/real").absolute()
+evaluate_folder = Path("./evaluate2").absolute()
+fake_folder = Path("./evaluate2/fake").absolute()
+real_folder = Path("./evaluate2/real").absolute()
 FakeImgsCount = 10000
 
 vmeory = round(torch.cuda.get_device_properties(0).total_memory / (1024 ** 3))
