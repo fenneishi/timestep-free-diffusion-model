@@ -329,12 +329,12 @@ class Unet(nn.Module):
 
         t = self.time_mlp(time)
 
-        if how_to_t == HowTo_t.input_no_t or how_to_t == HowTo_t.predict_t:
-            # t = None
-            t_signal = rearrange(time, 'b ... -> b 1  ...')
-            t_signal = torch.clamp(((700 - torch.clamp(t_signal, 0, 700)) / 700) ** 0.25, 0, 1).detach()
-            t_noise = torch.randn_like(t).detach()  # remove this line to use the time embeddings
-            t = t_signal * t + (1 - t_signal) * t_noise
+        # if how_to_t == HowTo_t.input_no_t or how_to_t == HowTo_t.predict_t:
+        #     # t = None
+        #     t_signal = rearrange(time, 'b ... -> b 1  ...')
+        #     t_signal = torch.clamp(((700 - torch.clamp(t_signal, 0, 700)) / 700) ** 0.25, 0, 1).detach()
+        #     t_noise = torch.randn_like(t).detach()  # remove this line to use the time embeddings
+        #     t = t_signal * t + (1 - t_signal) * t_noise
 
 
         h = []
