@@ -19,7 +19,6 @@ import wandb
 # from dataset_CIFAR10 import test_data, training_data, channels, image_size
 from dataset_FashionMNIST import test_data, channels, image_size
 
-
 from schedule import ScheduleDDPM as Schedule
 from utils import num_to_groups, clamp
 
@@ -135,7 +134,8 @@ def evaluate(model: torch.nn.Module | Callable, step: int = 0):
     # visualize fake images
     visualize = os.path.join(evaluate_folder, f"sample_{step}.png")
     save_image(torch.stack(fake_imgs[:64]), visualize)
-    wandb.log({"fake_imgs": [wandb.Image(visualize)]}, step=step)
+    if wandb.run is not None:
+        wandb.log({"fake_imgs": [wandb.Image(visualize)]}, step=step)
     del fake_imgs
 
     build_real_data()
@@ -155,22 +155,26 @@ def evaluate(model: torch.nn.Module | Callable, step: int = 0):
         prc=True,
         kid=False,
     )
-    wandb.log(metrics_dict, step=step)
+    print(metrics_dict)
+    if wandb.run is not None:
+        wandb.log(metrics_dict, step=step)
     # {'inception_score_mean': 4.148801176711407, 'inception_score_std': 0.041404909234431596,
     #  'frechet_inception_distance': 34.29237695877276, 'precision': 0.4097000062465668, 'recall': 0.7635999917984009,
     #  'f_score': 0.5332769486592858}
-    print(metrics_dict)
 
 
 if __name__ == "__main__":
-    from model import Unet, pretrain_model_name, how_to_t, HowTo_t
+    from model import Unet, how_to_t, HowTo_t
+
+    pretrain_model_name = 'FashionMNIST_predict_t_0701_1612_step14040.pth'
     model = Unet(
         dim=image_size,
         channels=channels,
         dim_mults=(1, 2, 4,),
         out_dim=channels + 1 if how_to_t == HowTo_t.predict_t else None
-    ).to("cuda")
+    )
     model.load_state_dict(torch.load(pretrain_model_name))
+    model = model.cuda()  # .to("cuda")
     print(f"model loaded from {pretrain_model_name}")
 
 
@@ -184,6 +188,7 @@ if __name__ == "__main__":
 
 
     print(f"model loaded from {pretrain_model_name}")
+    model.eval()
     evaluate(call_model)
 
 # T=1000,input with t,learning rate decay 1e-3 1e-4 1e-5 1e-6,more train

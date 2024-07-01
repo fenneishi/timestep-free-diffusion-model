@@ -338,7 +338,7 @@ class Unet(nn.Module):
         #     t_noise = torch.randn_like(t).detach()  # remove this line to use the time embeddings
         #     t = t_signal * t + (1 - t_signal) * t_noise
 
-        t = torch.randn_like(t).detach()
+        # t = torch.randn_like(t).detach()
 
         h = []
 

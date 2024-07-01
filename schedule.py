@@ -195,11 +195,11 @@ class ScheduleDDPM(ScheduleBase):
             x = self.p_sample(model, x, t)
             res.append(x)
 
-        epio = 1e-3
-        while True:
-            x,t = self.p_sample(model, x)
-            if t<epio:
-                break
+        # epio = 1e-3
+        # while True:
+        #     x,t = self.p_sample(model, x)
+        #     if t<epio:
+        #         break
 
 
         return res
