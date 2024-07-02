@@ -4,21 +4,39 @@ import numpy as np
 
 
 # Define the function
-def custom_function(x):
+@torch.no_grad()
+def t_signal(x: torch.Tensor) -> torch.Tensor:
+    x = x / 999
+    # print(x)
+    assert (0 <= x ).all()
+    assert (x <= 1).all()
+    x = x * 2 - 1
+    # print(x)
+    assert (-1 <= x).all()
+    assert (x <= 1).all()
+    mu = 0.0  # 均值
+    sigma = 0.1  # 标准差
+    normal_dist = torch.distributions.Normal(mu, sigma)
+    # x作为自变量，y作为因变量,函数形式是高斯分布
+    # y = torch.exp(-x ** 2 / 2) / (2 * np.pi) ** 0.5
+    y = normal_dist.log_prob(x).exp()
+    y = torch.clamp(y, 0, 1)
+
     # x = torch.clamp(700 - x, 0, 700)
     # x = x / 700.
     # x = x ** 0.25
     # x = torch.clamp(x, 0, 1)
 
-    x = torch.clamp(((700 - torch.clamp(x, 0, 700)) / 700) ** 0.25, 0, 1)
-    return x
+    # x = torch.clamp(((700 - torch.clamp(x, 0, 700)) / 700) ** 0.25, 0, 1)
+    return y
 
 
 # Generate x values
-# x_values = torch.linspace(0, 1000, 1000)
-x_values = torch.arange(0, 1000).flip(0)
+# x_values = torch.linspace(0, 999, 1000)
+x_values = torch.arange(0, 1000)
+print(x_values)
 # Calculate y values using the custom function
-y_values = custom_function(x_values)
+y_values = t_signal(x_values)
 
 area = torch.trapz(y_values, x_values) / 1000
 # area_discrete = y_values.sum()

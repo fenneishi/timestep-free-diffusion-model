@@ -235,6 +235,33 @@ class PreNorm(nn.Module):
         return self.fn(x)
 
 
+@torch.no_grad()
+def t_signal_fn(x: torch.Tensor) -> torch.Tensor:
+    x = x / 999
+    # print(x)
+    assert (0 <= x).all()
+    assert (x <= 1).all()
+    x = x * 2 - 1
+    # print(x)
+    assert (-1 <= x).all()
+    assert (x <= 1).all()
+    mu = 0.0  # 均值
+    sigma = 0.1  # 标准差
+    normal_dist = torch.distributions.Normal(mu, sigma)
+    # x作为自变量，y作为因变量,函数形式是高斯分布
+    # y = torch.exp(-x ** 2 / 2) / (2 * np.pi) ** 0.5
+    y = normal_dist.log_prob(x).exp()
+    y = torch.clamp(y, 0, 1)
+
+    # x = torch.clamp(700 - x, 0, 700)
+    # x = x / 700.
+    # x = x ** 0.25
+    # x = torch.clamp(x, 0, 1)
+
+    # x = torch.clamp(((700 - torch.clamp(x, 0, 700)) / 700) ** 0.25, 0, 1)
+    return y
+
+
 class Unet(nn.Module):
     def __init__(
             self,
@@ -334,10 +361,11 @@ class Unet(nn.Module):
         if how_to_t == HowTo_t.input_no_t or how_to_t == HowTo_t.predict_t:
             # t = None
             t_signal = rearrange(time, 'b ... -> b 1  ...')
-            t_signal = torch.clamp(((700 - torch.clamp(t_signal, 0, 700)) / 700) ** 0.25, 0, 1).detach()
+            # t_signal = torch.clamp(((700 - torch.clamp(t_signal, 0, 700)) / 700) ** 0.25, 0, 1).detach()
+            t_signal = t_signal_fn(t_signal).detach()
             t_noise = torch.randn_like(t).detach()  # remove this line to use the time embeddings
-            # t = t_signal * t + (1 - t_signal) * t_noise
-            t = (1 - t_signal) * t + t_signal * t_noise
+            t = t_signal * t + (1 - t_signal) * t_noise
+            # t = (1 - t_signal) * t + t_signal * t_noise
 
         # t = torch.randn_like(t).detach()
 

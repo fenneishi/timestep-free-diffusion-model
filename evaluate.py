@@ -49,7 +49,9 @@ def build_fake_data(model: torch.nn.Module | Callable):
     schedule = Schedule(schedule_fn=schedule_fn, ddpm_T=T)
 
     # batch sizes
-    batch_sizes = num_to_groups(FakeImgsCount, 1024 * 4)
+    batch_sizes = num_to_groups(FakeImgsCount, 1024)
+    print(f'FakeImgsCount: {FakeImgsCount}')
+    print(f"batch_sizes: {batch_sizes}")
 
     # generate images and save them
     def gen_imgs(batch_size: int) -> list[torch.Tensor]:
@@ -166,7 +168,7 @@ def evaluate(model: torch.nn.Module | Callable, step: int = 0):
 if __name__ == "__main__":
     from model import Unet, how_to_t, HowTo_t
 
-    pretrain_model_name = 'FashionMNIST_predict_t_0701_1612_step14040.pth'
+    pretrain_model_name = 'FashionMNIST_predict_t_0702_1822_step12000.pth'
     model = Unet(
         dim=image_size,
         channels=channels,
@@ -200,3 +202,5 @@ if __name__ == "__main__":
 #     'recall': 0.786899983882904,
 #     'f_score': 0.6504304667745237
 # }
+# {'inception_score_mean': 4.326085088038518, 'inception_score_std': 0.13942109018878648, 'frechet_inception_distance': 15.49822051960075, 'precision': 0.5177000164985657, 'recall': 0.6747999787330627, 'f_score': 0.5859018222561629}
+# {'inception_score_mean': 4.1074622496128725, 'inception_score_std': 0.06478303921250106, 'frechet_inception_distance': 18.621307832645527, 'precision': 0.4684000015258789, 'recall': 0.729200005531311, 'f_score': 0.570402942035431}
