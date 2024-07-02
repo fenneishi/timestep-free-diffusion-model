@@ -5,15 +5,18 @@ import numpy as np
 
 # Define the function
 def custom_function(x):
-    x = torch.clamp(700 - x, 0, 700)
-    x = x / 700.
-    x = x ** 0.25
-    x = torch.clamp(x, 0, 1)
+    # x = torch.clamp(700 - x, 0, 700)
+    # x = x / 700.
+    # x = x ** 0.25
+    # x = torch.clamp(x, 0, 1)
+
+    x = torch.clamp(((700 - torch.clamp(x, 0, 700)) / 700) ** 0.25, 0, 1)
     return x
 
 
 # Generate x values
-x_values = torch.linspace(0, 1000, 1000)
+# x_values = torch.linspace(0, 1000, 1000)
+x_values = torch.arange(0, 1000).flip(0)
 # Calculate y values using the custom function
 y_values = custom_function(x_values)
 

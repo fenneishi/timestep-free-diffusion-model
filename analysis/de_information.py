@@ -11,15 +11,15 @@ from schedule import ScheduleDDPM as Schedule
 from utils import noise_like
 from torchvision.utils import save_image
 
-channels = 1
-image_size = 28
+channels = 3
+image_size = 32
 schedule_fn = Schedule.schedule_fn
 T = Schedule.T
 batch_size = 1
 device = 'cpu'
 schedule = Schedule(schedule_fn=schedule_fn, ddpm_T=T)
 
-data = datasets.FashionMNIST(
+data = datasets.CIFAR10(
     root="../.data",
     train=False,
     download=True,
@@ -240,6 +240,7 @@ def denoise_schedule_show(images: list[torch.Tensor], ts: list[int], _: int):
             linestyle=linestyles[1],
             label=f"std"
         )
+        plt.fill_between(x, _mins[i], _maxs[i], color=colors[i], alpha=0.05, label='Standard Deviation')
         offset += len(img) + spacing
 
     plt.axhline(y=0, color='black', linewidth=0.5)  # Adding the x-axis at y=0
@@ -270,10 +271,6 @@ def denoise_schedule_show(images: list[torch.Tensor], ts: list[int], _: int):
 
 
 for i, (x_0, _) in tqdm(enumerate(dataloader)):
-    print(_)
-    if i > 10:
-        exit(0)
-for i, (x_0, _) in tqdm(enumerate(dataloader)):
     imgs = []
     ts = [T, int(T // 5), 1]
 
@@ -282,9 +279,9 @@ for i, (x_0, _) in tqdm(enumerate(dataloader)):
         X_t = schedule.q_sample(x_0=x_0, t=t, noise=noise_like(x_0))
         imgs.append(X_t)
     _ = _.item()
+    denoise_schedule_show(imgs, ts, i)
     schedule_show(imgs, ts, i)
     denoise_show(imgs, ts, i)
-    denoise_schedule_show(imgs, ts, i)
     save_image(x_0, f'X_{i}.png')
 
     if i > 10:

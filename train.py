@@ -104,7 +104,7 @@ for epoch in range(epochs):
     for x_0, _ in tqdm(dataloader, desc=f"epoch {epoch}"):
         optimizer.zero_grad()
         # class labels
-        _ = (_ + 1).to(device)
+        # _ = (_ + 1).to(device)
 
         # x_0
         x_0 = x_0.to(device)
@@ -122,8 +122,8 @@ for epoch in range(epochs):
         X_t = schedule.q_sample(x_0=x_0, t=t, noise=noise)
 
         # predict
-        # predicted: torch.Tensor = model(X_t, t)
-        predicted: torch.Tensor = model(X_t, _)
+        predicted: torch.Tensor = model(X_t, t)
+        # predicted: torch.Tensor = model(X_t, _)
         if how_to_t == HowTo_t.predict_t:
             predicted_noise, predicted_t = predicted[:, :-1, :, :], predicted[:, -1:, :, :]
         else:
