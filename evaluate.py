@@ -5,6 +5,11 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import warnings
 from typing import Callable
+import asyncio
+from pathlib import Path
+import aiofiles
+import aiofiles.os
+from tqdm.asyncio import tqdm_asyncio
 
 warnings.filterwarnings("ignore", category=UserWarning, module='torch_fidelity.datasets')
 
@@ -21,13 +26,52 @@ from dataset_FashionMNIST import test_data, channels, image_size
 
 from schedule import ScheduleDDPM as Schedule
 from utils import num_to_groups, clamp
+from model import how_to_t, t_signal_type
 
-evaluate_folder = Path("./evaluate2").absolute()
-fake_folder = Path("./evaluate2/fake").absolute()
-real_folder = Path("./evaluate2/real").absolute()
+evaluate_folder = f'./evaluate_{how_to_t.value}_{t_signal_type.value}'
+evaluate_folder = Path(evaluate_folder).absolute()
+fake_folder = evaluate_folder / 'fake'
+real_folder = evaluate_folder / 'real'
 FakeImgsCount = 10000
 
 vmeory = round(torch.cuda.get_device_properties(0).total_memory / (1024 ** 3))
+
+del_pbar = None
+save_pbar = None
+
+
+async def delete_file(file_path):
+    global del_pbar
+    try:
+        os.remove(file_path)
+        del_pbar.update(1)
+    except Exception as e:
+        raise Exception(f"Failed to delete {file_path}: {e}")
+
+
+async def delete_files_in_directory(directory_path):
+    if not directory_path.exists():
+        print(f'{directory_path} is not exist, no need to delete')
+        return
+    if not directory_path.is_dir():
+        raise ValueError(f"{directory_path} is not a directory")
+    global del_pbar
+    print(f'async delete {directory_path}...')
+    loop = asyncio.get_running_loop()
+    tasks = []
+    for root, dirs, files in await loop.run_in_executor(None, os.walk, directory_path):
+        for file in files:
+            file_path = os.path.join(root, file)
+            tasks.append(delete_file(file_path))
+
+    del_pbar = tqdm(total=len(tasks), desc=f"Deleting files in {directory_path}", unit="file")
+    await asyncio.gather(*tasks)
+    await aiofiles.os.rmdir(directory_path)
+    del_pbar.close()
+    print(f"Deleted all files in {directory_path}")
+
+
+asyncio.run(delete_files_in_directory(fake_folder))
 
 
 @torch.no_grad()
@@ -38,13 +82,6 @@ def build_fake_data(model: torch.nn.Module | Callable):
     schedule_fn = Schedule.schedule_fn
     T = Schedule.T
 
-    # clear fake folder
-    global fake_folder
-    if fake_folder.exists() and fake_folder.is_dir():
-        shutil.rmtree(fake_folder)
-        # subprocess.call(['rm', '-rf', fake_folder])
-    os.makedirs(fake_folder, exist_ok=False)
-
     # schedule
     schedule = Schedule(schedule_fn=schedule_fn, ddpm_T=T)
 
@@ -53,7 +90,7 @@ def build_fake_data(model: torch.nn.Module | Callable):
     print(f'FakeImgsCount: {FakeImgsCount}')
     print(f"batch_sizes: {batch_sizes}")
 
-    # generate images and save them
+    # generate images
     def gen_imgs(batch_size: int) -> list[torch.Tensor]:
         res = schedule.p_sample_loop(
             model=model,
@@ -69,22 +106,22 @@ def build_fake_data(model: torch.nn.Module | Callable):
             imgs = repeat(imgs, 'b 1 h w -> b 3 h w')
         return [img for img in imgs]
 
-    def save_img(name_img_tuple: tuple[str | int, torch.Tensor]) -> None:
-        name, img = name_img_tuple
-        save_image(img, os.path.join(fake_folder, f'{name}.png'))
-
     fake_imgs = []
+    tasks = []
+    img_number = 0
     for b in tqdm(batch_sizes, desc='Generating images'):
         fake_imgs += gen_imgs(b)
 
-    # with ThreadPoolExecutor() as executor:
-    #     save_tasks = [(f'gen_{i:07d}', img) for i, img in enumerate(fake_imgs)]
-    #     executor.map(save_img, save_tasks)
+    # save images
+    global fake_folder
+    if fake_folder.exists():
+        if not fake_folder.is_dir():
+            raise ValueError(f"{fake_folder} is not a directory")
+        shutil.rmtree(fake_folder)
+    os.makedirs(fake_folder, exist_ok=False)
     save_tasks = [(f'gen_{i:07d}', img) for i, img in enumerate(fake_imgs)]
-    for name, img in tqdm(save_tasks, desc='Saving images'):
+    for name, img in tqdm(save_tasks, desc=f'Saving images to {fake_folder}'):
         save_image(img, os.path.join(fake_folder, f'{name}.png'))
-
-    print(f"fake images saved to {fake_folder}")
 
     return fake_imgs
 
@@ -160,6 +197,11 @@ def evaluate(model: torch.nn.Module | Callable, step: int = 0):
     print(metrics_dict)
     if wandb.run is not None:
         wandb.log(metrics_dict, step=step)
+    if fake_folder.exists():
+        if not fake_folder.is_dir():
+            raise ValueError(f"{fake_folder} is not a directory")
+        asyncio.run(delete_files_in_directory(fake_folder))
+
     # {'inception_score_mean': 4.148801176711407, 'inception_score_std': 0.041404909234431596,
     #  'frechet_inception_distance': 34.29237695877276, 'precision': 0.4097000062465668, 'recall': 0.7635999917984009,
     #  'f_score': 0.5332769486592858}
@@ -189,7 +231,6 @@ if __name__ == "__main__":
         return predicted
 
 
-    print(f"model loaded from {pretrain_model_name}")
     model.eval()
     evaluate(call_model)
 

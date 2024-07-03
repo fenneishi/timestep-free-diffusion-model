@@ -15,10 +15,16 @@ import torch.nn.functional as F
 
 
 class HowTo_t(Enum):
-    input_t = 'input_t'
-    input_no_t = 'no_t'
-    predict_t = 'predict_t'
-    input_no_t_abs = 'no_t_abs'
+    input_t = 'input_t'  # input t
+    input_no_t = 'no_t'  # don't input t
+    predict_t = 'predict_t'  # don't input t and predict t
+
+
+class T_Signal_Type(Enum):
+    zero = 'zero'
+    left = 'left'
+    middle = 'middle'
+    right = 'right'
 
 
 timezone = pytz.timezone('Asia/Shanghai')
@@ -26,18 +32,17 @@ today = datetime.datetime.now(timezone).date().strftime("%m%d")
 hourmin = datetime.datetime.now(timezone).strftime("%H%M")
 
 how_to_t = HowTo_t.predict_t
-# pretrain_model_name = f'model_FashionMNIST_{str(how_to_t.value)}_0621.pth'
-# pretrain_model_name = "FashionMNIST_predict_t_0625_0959_step8424.pth"#"FashionMNIST_input_t_0625_step8424.pth" #"FashionMNIST_predict_t_0625_0959_step8424.pth" # "FashionMNIST_predict_t_0625_step2808.pth" # "FashionMNIST_input_t_0625_2808.pth"
+t_signal_type = T_Signal_Type.right
 pretrain_model_name = None
 
 
 def save_model_name(step: int | str | None = None):
     if step is None:
-        return f'FashionMNIST_{str(how_to_t.value)}_{today}_{hourmin}.pth'
+        return f'FashionMNIST_{how_to_t.value}_{t_signal_type.value}_{today}_{hourmin}.pth'
     elif isinstance(step, int):
-        return f'FashionMNIST_{str(how_to_t.value)}_{today}_{hourmin}_step{step}.pth'
+        return f'FashionMNIST_{how_to_t.value}_{t_signal_type.value}_{today}_{hourmin}_step{step}.pth'
     else:
-        return f'FashionMNIST_{str(how_to_t.value)}_{today}_{hourmin}_{step}.pth'
+        return f'FashionMNIST_{how_to_t.value}_{t_signal_type.value}_{today}_{hourmin}_{step}.pth'
 
 
 def exists(x):
@@ -236,30 +241,57 @@ class PreNorm(nn.Module):
 
 
 @torch.no_grad()
-def t_signal_fn(x: torch.Tensor) -> torch.Tensor:
-    x = x / 999
-    # print(x)
-    assert (0 <= x).all()
-    assert (x <= 1).all()
-    x = x * 2 - 1
-    # print(x)
-    assert (-1 <= x).all()
-    assert (x <= 1).all()
-    mu = 0.0  # 均值
-    sigma = 0.1  # 标准差
-    normal_dist = torch.distributions.Normal(mu, sigma)
-    # x作为自变量，y作为因变量,函数形式是高斯分布
-    # y = torch.exp(-x ** 2 / 2) / (2 * np.pi) ** 0.5
-    y = normal_dist.log_prob(x).exp()
-    y = torch.clamp(y, 0, 1)
+def t_signal_fn(_i: torch.Tensor, _t_signal_type: T_Signal_Type | None = None) -> torch.Tensor:
+    if _t_signal_type is None:
+        _t_signal_type = t_signal_type
 
-    # x = torch.clamp(700 - x, 0, 700)
-    # x = x / 700.
-    # x = x ** 0.25
-    # x = torch.clamp(x, 0, 1)
+    def zero(x):
+        return torch.zeros_like(x)
 
-    # x = torch.clamp(((700 - torch.clamp(x, 0, 700)) / 700) ** 0.25, 0, 1)
-    return y
+    def middle(x):
+        x = x / 999
+        # print(x)
+        assert (0 <= x).all()
+        assert (x <= 1).all()
+        x = x * 2 - 1
+        # print(x)
+        assert (-1 <= x).all()
+        assert (x <= 1).all()
+        mu = 0.0
+        sigma = 0.1
+        normal_dist = torch.distributions.Normal(mu, sigma)
+        # y = torch.exp(-x ** 2 / 2) / (2 * np.pi) ** 0.5
+        y = normal_dist.log_prob(x).exp()
+        y = torch.clamp(y, 0, 1)
+        return y
+
+    def left(x):
+        assert (0 <= x).all()
+        assert (x <= 999).all()
+        x = torch.clamp(x, 0, 699) / 699.
+        y = (1 - x) ** 0.25
+        assert (0 <= y).all()
+        assert (y <= 1).all()
+        # x = torch.clamp(((700 - torch.clamp(x, 0, 700)) / 700) ** 0.25, 0, 1)
+        return y
+
+    def right(x):
+        assert (0 <= x).all()
+        assert (x <= 999).all()
+        x = (torch.clamp(x, 300, 999) - 300) / 699.
+        y = x ** 0.25
+        assert (0 <= y).all()
+        assert (y <= 1).all()
+        return y
+
+    FN = {
+        T_Signal_Type.zero: zero,
+        T_Signal_Type.left: left,
+        T_Signal_Type.middle: middle,
+        T_Signal_Type.right: right,
+    }
+
+    return FN[_t_signal_type](_i)
 
 
 class Unet(nn.Module):
@@ -359,15 +391,11 @@ class Unet(nn.Module):
         t = self.time_mlp(time)
 
         if how_to_t == HowTo_t.input_no_t or how_to_t == HowTo_t.predict_t:
-            # t = None
-            t_signal = rearrange(time, 'b ... -> b 1  ...')
-            # t_signal = torch.clamp(((700 - torch.clamp(t_signal, 0, 700)) / 700) ** 0.25, 0, 1).detach()
-            t_signal = t_signal_fn(t_signal).detach()
-            t_noise = torch.randn_like(t).detach()  # remove this line to use the time embeddings
+            with torch.no_grad():
+                t_signal = rearrange(time, 'b ... -> b 1  ...')
+                t_signal = t_signal_fn(t_signal).detach()
+                t_noise = torch.randn_like(t).detach()
             t = t_signal * t + (1 - t_signal) * t_noise
-            # t = (1 - t_signal) * t + t_signal * t_noise
-
-        # t = torch.randn_like(t).detach()
 
         h = []
 

@@ -9,7 +9,7 @@ from torch.optim import Adam
 from tqdm import tqdm
 import wandb
 
-from model import Unet, save_model_name, pretrain_model_name, how_to_t, HowTo_t
+from model import Unet, save_model_name, pretrain_model_name, how_to_t, HowTo_t, t_signal_type
 from dataset_FashionMNIST import build_data, image_size, channels
 from schedule import ScheduleDDPM as Schedule
 from loss import loss_f
@@ -24,12 +24,13 @@ from utils import noise_like
 
 assert torch.cuda.is_available()
 device = "cuda"
-epochs = 6 * 5
+epochs = 22  # 33  # every 1 epoch is 468 steps for batch_size=128 in FashionMNIST
 T = Schedule.T
 batch_size = 128  # 64
 learning_rate = 1e-3
 schedule_fn = Schedule.schedule_fn
 save_and_evaluate_every = 1000 // 1
+start_save_and_evaluate = 4000
 
 wandb.login()
 run = wandb.init(
@@ -49,6 +50,8 @@ run = wandb.init(
         "how_to_t": str(how_to_t.value),
         "pretrain_model_name": pretrain_model_name,
         "save_model_name": save_model_name(),
+        "t_signal_type": t_signal_type.value,
+        'start_save_and_evaluate': start_save_and_evaluate
     },
 )
 
@@ -88,19 +91,20 @@ step = 0
 
 
 def evaluate_model():
-    pass
-    # model.eval()
-    # evaluate(call_model, step)
-    # model.train()
+    model.eval()
+    evaluate(call_model, step)
+    model.train()
 
 
 def save_model():
+    print(f"Saving model at step {step}")
     model_name = save_model_name(step)
     torch.save(model.state_dict(), model_name)
     print(f"Model saved at {model_name}")
 
 
 for epoch in range(epochs):
+    print(f"epoch {epoch},step {step}")
     for x_0, _ in tqdm(dataloader, desc=f"epoch {epoch}"):
         optimizer.zero_grad()
         # class labels
@@ -142,7 +146,7 @@ for epoch in range(epochs):
         optimizer.step()
 
         # evaluate and save model
-        if step % save_and_evaluate_every == 0 and step > 0:
+        if step % save_and_evaluate_every == 0 and step >= start_save_and_evaluate:
             evaluate_model()
             save_model()
 
