@@ -1,3 +1,4 @@
+import PIL.Image
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
@@ -26,7 +27,7 @@ data = datasets.CIFAR10(
     transform=transforms.Compose([
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Lambda(lambda t: (t * 2) - 1)
+        # transforms.Lambda(lambda t: (t * 2) - 1)
     ])
 )
 dataloader = DataLoader(data, batch_size=batch_size, shuffle=False, num_workers=0,
@@ -283,6 +284,7 @@ for i, (x_0, _) in tqdm(enumerate(dataloader)):
     schedule_show(imgs, ts, i)
     denoise_show(imgs, ts, i)
     save_image(x_0, f'X_{i}.png')
+    img = PIL.Image.Image.open(f'X_{i}.png')
 
     if i > 10:
         break

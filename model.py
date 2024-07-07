@@ -32,7 +32,7 @@ today = datetime.datetime.now(timezone).date().strftime("%m%d")
 hourmin = datetime.datetime.now(timezone).strftime("%H%M")
 
 how_to_t = HowTo_t.predict_t
-t_signal_type = T_Signal_Type.right
+t_signal_type = T_Signal_Type.left
 pretrain_model_name = None
 
 
