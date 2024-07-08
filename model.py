@@ -25,6 +25,7 @@ class T_Signal_Type(Enum):
     left = 'left'
     middle = 'middle'
     right = 'right'
+    none = ''
 
 
 timezone = pytz.timezone('Asia/Shanghai')

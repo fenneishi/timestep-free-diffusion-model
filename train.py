@@ -146,7 +146,7 @@ for epoch in range(epochs):
         optimizer.step()
 
         # evaluate and save model
-        if step % save_and_evaluate_every == 0 and step >= start_save_and_evaluate:
+        if step % save_and_evaluate_every == 0 and step >= start_save_and_evaluate and step > 0:
             evaluate_model()
             save_model()
 
