@@ -37,7 +37,6 @@ FakeImgsCount = 10000
 vmeory = round(torch.cuda.get_device_properties(0).total_memory / (1024 ** 3))
 
 del_pbar = None
-save_pbar = None
 
 
 async def delete_file(file_path):
@@ -202,9 +201,6 @@ def evaluate(model: torch.nn.Module | Callable, step: int = 0):
             raise ValueError(f"{fake_folder} is not a directory")
         asyncio.run(delete_files_in_directory(fake_folder))
 
-    # {'inception_score_mean': 4.148801176711407, 'inception_score_std': 0.041404909234431596,
-    #  'frechet_inception_distance': 34.29237695877276, 'precision': 0.4097000062465668, 'recall': 0.7635999917984009,
-    #  'f_score': 0.5332769486592858}
 
 
 if __name__ == "__main__":
@@ -233,15 +229,3 @@ if __name__ == "__main__":
 
     model.eval()
     evaluate(call_model)
-
-# T=1000,input with t,learning rate decay 1e-3 1e-4 1e-5 1e-6,more train
-# {
-#     'inception_score_mean': 4.250638325513722,
-#     'inception_score_std': 0.11893020987160077,
-#     'frechet_inception_distance': 8.519418311322795,
-#     'precision': 0.5543000102043152,
-#     'recall': 0.786899983882904,
-#     'f_score': 0.6504304667745237
-# }
-# {'inception_score_mean': 4.326085088038518, 'inception_score_std': 0.13942109018878648, 'frechet_inception_distance': 15.49822051960075, 'precision': 0.5177000164985657, 'recall': 0.6747999787330627, 'f_score': 0.5859018222561629}
-# {'inception_score_mean': 4.1074622496128725, 'inception_score_std': 0.06478303921250106, 'frechet_inception_distance': 18.621307832645527, 'precision': 0.4684000015258789, 'recall': 0.729200005531311, 'f_score': 0.570402942035431}

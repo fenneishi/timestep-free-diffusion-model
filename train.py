@@ -1,8 +1,3 @@
-import os
-import warnings
-from pathlib import Path
-import shutil
-
 import torch
 from torch.optim import Adam
 
@@ -16,17 +11,11 @@ from loss import loss_f
 from evaluate import evaluate
 from utils import noise_like
 
-# results_folder = Path("./results").absolute()
-# if results_folder.exists() and results_folder.is_dir():
-#     shutil.rmtree(results_folder)
-# if not results_folder.exists():
-#     os.makedirs(results_folder)
-
 assert torch.cuda.is_available()
 device = "cuda"
-epochs = 22  # 33  # every 1 epoch is 468 steps for batch_size=128 in FashionMNIST
+epochs = 22  # every 1 epoch has 468 steps when batch_size=128 in FashionMNIST
 T = Schedule.T
-batch_size = 128  # 64
+batch_size = 128
 learning_rate = 1e-3
 schedule_fn = Schedule.schedule_fn
 save_and_evaluate_every = 1000 // 1
@@ -70,7 +59,7 @@ model = Unet(
     dim_mults=(1, 2, 4,),
     out_dim=channels + 1 if how_to_t == HowTo_t.predict_t else None
 ).to(device)
-# load the model from pretrained
+
 if pretrain_model_name is not None:
     model.load_state_dict(torch.load(pretrain_model_name))
 
