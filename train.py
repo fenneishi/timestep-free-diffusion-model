@@ -1,50 +1,65 @@
-import logging
-import warnings
 import os
+import warnings
 from pathlib import Path
 import shutil
 
 import torch
-from einops import rearrange
 from torch.optim import Adam
 
-from torchvision.utils import save_image
 from tqdm import tqdm
+import wandb
 
-from model import Unet, save_model_name, pretrain_model_name, how_to_t, HowTo_t
+from model import Unet, save_model_name, pretrain_model_name, how_to_t, HowTo_t, t_signal_type
+from dataset_FashionMNIST import build_data, image_size, channels
 from schedule import ScheduleDDPM as Schedule
 from loss import loss_f
-# from dataset_CIFAR10 import build_data, image_size, channels
-from dataset_FashionMNIST import build_data, image_size, channels
-from utils import num_to_groups, noise_like
+from evaluate import evaluate
+from utils import noise_like
 
-results_folder = Path("./results").absolute()
-if results_folder.exists() and results_folder.is_dir():
-    shutil.rmtree(results_folder)
-if not results_folder.exists():
-    os.makedirs(results_folder)
+# results_folder = Path("./results").absolute()
+# if results_folder.exists() and results_folder.is_dir():
+#     shutil.rmtree(results_folder)
+# if not results_folder.exists():
+#     os.makedirs(results_folder)
 
 assert torch.cuda.is_available()
 device = "cuda"
-epochs = 6
+epochs = 22  # 33  # every 1 epoch is 468 steps for batch_size=128 in FashionMNIST
 T = Schedule.T
 batch_size = 128  # 64
 learning_rate = 1e-3
 schedule_fn = Schedule.schedule_fn
-save_and_sample_every = 1000 // 1
+save_and_evaluate_every = 1000 // 1
+start_save_and_evaluate = 4000
+
+wandb.login()
+run = wandb.init(
+    project="timestep-free-diffusion-model",
+    entity="fenneishi",
+    name=save_model_name(f'scratch')[0:-4],
+    # mode="disabled",
+    config={
+        "learning_rate": learning_rate,
+        "batch_size": batch_size,
+        "epochs": epochs,
+        "T": T,
+        "schedule_fn": schedule_fn.__name__,
+        "save_and_sample_every": save_and_evaluate_every,
+        "image_size": image_size,
+        "channels": channels,
+        "how_to_t": str(how_to_t.value),
+        "pretrain_model_name": pretrain_model_name,
+        "save_model_name": save_model_name(),
+        "t_signal_type": t_signal_type.value,
+        'start_save_and_evaluate': start_save_and_evaluate
+    },
+)
 
 print(
     f'######################################\n'
-    f'epochs: {epochs}\n'
-    f'T: {T}\n'
-    f'batch_size: {batch_size}\n'
-    f'learning_rate: {learning_rate} \n'
-    f'pretrain_model_name: {pretrain_model_name}\n'
-    f'save_model_name: {save_model_name}\n'
-    f'how_to_t: {how_to_t}\n'
-    f'channels: {channels}\n'
-    f'image_size: {image_size}\n'
-    f'schedule_fn: {schedule_fn}\n'
+    f'run_id: {run.id}\n'
+    f'run_name: {run.name}\n'
+    f'run_config: {run.config}\n'
     f'\n######################################'
 )
 
@@ -63,58 +78,37 @@ optimizer = Adam(model.parameters(), lr=learning_rate)
 dataloader = build_data(batch_size=batch_size, train=True)
 
 
-def sample(b: torch.Tensor) -> torch.Tensor:
-    def call_model(*args, **kwargs):
-        predicted: torch.Tensor = model(*args, **kwargs)
-        if how_to_t == HowTo_t.predict_t:
-            predicted_noise, predicted_t = predicted[:, :-1, :, :], predicted[:, -1:, :, :]
-            predicted_t_show = ((predicted_t.mean().item() + 1) / 2) * 1000
-            predicted_t_show = (1000 - predicted_t_show) / 1000
-            # to percentage
-            predicted_t_show = int(predicted_t_show * 100)
-            print(f"predicted_t: {predicted_t_show}%")
-            predicted = predicted_noise
-        return predicted
-
-    res = schedule.p_sample_loop(call_model, shape=(b, channels, image_size, image_size))
-    # batch_diffusion_imgs = [[bc[i] for bc in res] for i in range(64)]
-    # batch_diffusion_imgs = [(torch.stack(i) + 1) * 0.5 for i in batch_diffusion_imgs]
-    # for i, img in tqdm(enumerate(batch_diffusion_imgs)):
-    #     save_image(img, os.path.join(results_folder, f'diffusion_{i}.png'), nrow=50)
-
-    return res[-1]
+def call_model(*args, **kwargs):
+    predicted: torch.Tensor = model(*args, **kwargs)
+    if how_to_t == HowTo_t.predict_t:
+        predicted_noise, predicted_t = predicted[:, :-1, :, :], predicted[:, -1:, :, :]
+        predicted = predicted_noise
+        # print(f"predicted_t: {1- (predicted_t.mean().item() + 1) / 2}")
+    return predicted
 
 
 step = 0
 
 
-def evaluate(force=False):
-    if (step != 0 and step % save_and_sample_every == 0) or force:
-        print(f"evaluating at step {step}")
-        images = [sample(b) for b in num_to_groups(64, batch_size)]
-        images = (torch.cat(images) + 1) * 0.5
-        save_image(
-            images,
-            os.path.join(
-                results_folder,
-                f"sample_{step // save_and_sample_every if not force else 'final'}.png"
-            )
-        )
-
-
-# evaluate(force=True)
+def evaluate_model():
+    model.eval()
+    evaluate(call_model, step)
+    model.train()
 
 
 def save_model():
-    if save_model_name is not None:
-        torch.save(model.state_dict(), save_model_name)
-        print("Epoch", epoch, f"completed,saving model to {save_model_name}")
+    print(f"Saving model at step {step}")
+    model_name = save_model_name(step)
+    torch.save(model.state_dict(), model_name)
+    print(f"Model saved at {model_name}")
 
 
-loss_log = None
 for epoch in range(epochs):
-    for x_0, _ in dataloader:
+    print(f"epoch {epoch},step {step}")
+    for x_0, _ in tqdm(dataloader, desc=f"epoch {epoch}"):
         optimizer.zero_grad()
+        # class labels
+        # _ = (_ + 1).to(device)
 
         # x_0
         x_0 = x_0.to(device)
@@ -131,8 +125,9 @@ for epoch in range(epochs):
         noise = noise_like(x_0)
         X_t = schedule.q_sample(x_0=x_0, t=t, noise=noise)
 
-        # predict noise
+        # predict
         predicted: torch.Tensor = model(X_t, t)
+        # predicted: torch.Tensor = model(X_t, _)
         if how_to_t == HowTo_t.predict_t:
             predicted_noise, predicted_t = predicted[:, :-1, :, :], predicted[:, -1:, :, :]
         else:
@@ -141,18 +136,22 @@ for epoch in range(epochs):
         # loss
         loss = loss_f(
             noise=noise, predicted_noise=predicted_noise,
+            step=step,
             t=t, predicted_t=predicted_t,
             loss_type="huber"
         )
 
-        loss_log = loss.item() if loss_log is None else 0.99 * loss_log + 0.01 * loss.item()
-        if step % 10 == 0:
-            print(f"smooth loss at step {step}:{loss_log:.5f}[{loss.item():.5f}]")
+        # optimize
         loss.backward()
         optimizer.step()
-        evaluate()
-        step += 1
-    save_model()
 
+        # evaluate and save model
+        if step % save_and_evaluate_every == 0 and step >= start_save_and_evaluate and step > 0:
+            evaluate_model()
+            save_model()
+
+        step += 1
+
+evaluate_model()
 save_model()
-evaluate(force=True)
+wandb.finish()

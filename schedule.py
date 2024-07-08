@@ -195,6 +195,13 @@ class ScheduleDDPM(ScheduleBase):
             x = self.p_sample(model, x, t)
             res.append(x)
 
+        # epio = 1e-3
+        # while True:
+        #     x,t = self.p_sample(model, x)
+        #     if t<epio:
+        #         break
+
+
         return res
 
 
@@ -207,6 +214,7 @@ class ScheduleDDIM(ScheduleDDPM):
             ddim_discretize: str = "uniform",
             ddim_eta: float = 0.
     ):
+        raise NotImplementedError("DDIM is not implemented yet")
         super().__init__(schedule_fn, ddpm_steps)
 
         self.ddim_steps = ddim_steps

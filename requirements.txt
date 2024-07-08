@@ -4,4 +4,6 @@ diffusers
 matplotlib
 einops
 datasets
+wandb
+aiofiles
 -e git+https://github.com/toshas/torch-fidelity.git@master#egg=torch-fidelity
