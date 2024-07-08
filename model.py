@@ -28,13 +28,14 @@ class T_Signal_Type(Enum):
     none = ''
 
 
-timezone = pytz.timezone('Asia/Shanghai')
-today = datetime.datetime.now(timezone).date().strftime("%m%d")
-hourmin = datetime.datetime.now(timezone).strftime("%H%M")
-
 how_to_t = HowTo_t.predict_t
 t_signal_type = T_Signal_Type.left
 pretrain_model_name = None
+
+# for logging and saving model
+timezone = pytz.timezone('Asia/Shanghai')
+today = datetime.datetime.now(timezone).date().strftime("%m%d")
+hourmin = datetime.datetime.now(timezone).strftime("%H%M")
 
 
 def save_model_name(step: int | str | None = None):
@@ -391,12 +392,14 @@ class Unet(nn.Module):
 
         t = self.time_mlp(time)
 
+        ########## control the signal of t ##################
         if how_to_t == HowTo_t.input_no_t or how_to_t == HowTo_t.predict_t:
             with torch.no_grad():
                 t_signal = rearrange(time, 'b ... -> b 1  ...')
                 t_signal = t_signal_fn(t_signal).detach()
                 t_noise = torch.randn_like(t).detach()
             t = t_signal * t + (1 - t_signal) * t_noise
+        #####################################################
 
         h = []
 

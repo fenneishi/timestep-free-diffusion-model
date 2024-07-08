@@ -145,6 +145,9 @@ class ScheduleDDPM(ScheduleBase):
             t: torch.Tensor,  # [B]
             noise: torch.Tensor | None = None  # [B, C, H, W]
     ) -> torch.Tensor:
+        """
+        reverse diffusion  (denoising)
+        """
         extract = functools.partial(self.extract, t=t, x_shape=x_t.shape)
 
         # 1.extract the parameters at time t
@@ -200,7 +203,6 @@ class ScheduleDDPM(ScheduleBase):
         #     x,t = self.p_sample(model, x)
         #     if t<epio:
         #         break
-
 
         return res
 
