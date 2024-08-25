@@ -1,5 +1,5 @@
 import functools
-from typing import Callable
+from typing import Callable, Tuple, Any
 
 import numpy as np
 from tqdm.auto import tqdm
@@ -7,6 +7,39 @@ from tqdm.auto import tqdm
 import torch
 
 from utils import noise_, noise_like
+
+
+def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_timesteps):
+    def sigmoid(x):
+        return 1 / (np.exp(-x) + 1)
+
+    if beta_schedule == "quad":
+        betas = (
+                np.linspace(
+                    beta_start ** 0.5,
+                    beta_end ** 0.5,
+                    num_diffusion_timesteps,
+                    dtype=np.float64,
+                )
+                ** 2
+        )
+    elif beta_schedule == "linear":
+        betas = np.linspace(
+            beta_start, beta_end, num_diffusion_timesteps, dtype=np.float64
+        )
+    elif beta_schedule == "const":
+        betas = beta_end * np.ones(num_diffusion_timesteps, dtype=np.float64)
+    elif beta_schedule == "jsd":  # 1/T, 1/(T-1), 1/(T-2), ..., 1
+        betas = 1.0 / np.linspace(
+            num_diffusion_timesteps, 1, num_diffusion_timesteps, dtype=np.float64
+        )
+    elif beta_schedule == "sigmoid":
+        betas = np.linspace(-6, 6, num_diffusion_timesteps)
+        betas = sigmoid(betas) * (beta_end - beta_start) + beta_start
+    else:
+        raise NotImplementedError(beta_schedule)
+    assert betas.shape == (num_diffusion_timesteps,)
+    return betas
 
 
 class ScheduleBase:
@@ -20,7 +53,7 @@ class ScheduleBase:
     @staticmethod
     def cosine_beta_schedule(train_steps: int, s=0.008) -> torch.Tensor:
         """
-        cosine schedule as proposed in https://arxiv.org/abs/2102.09672
+        cosine schedule as proposed in https://arxiv.org/abs/2102.09672 ''Improved Denoising Diffusion Probabilistic Models''
         """
         steps = train_steps + 1
         x = torch.linspace(0, train_steps, steps)
@@ -49,11 +82,10 @@ class ScheduleBase:
 
 
 class ScheduleDDPM(ScheduleBase):
-    schedule_fn = ScheduleBase.linear_beta_schedule
+    schedule_fn = ScheduleBase.cosine_beta_schedule
     T = 1000
 
     @torch.no_grad()
-    @torch.inference_mode()
     def __init__(
             self,
             schedule_fn: callable = ScheduleBase.linear_beta_schedule,
@@ -64,6 +96,7 @@ class ScheduleDDPM(ScheduleBase):
 
         # betas
         self.betas: torch.Tensor = self.schedule_fn(train_steps=self.ddpm_T)
+        self.betas = self.betas.to(torch.float64)
         # torch.tensor([0] + self.schedule_fn(train_steps=self.ddpm_steps).tolist()))
 
         # alphas
@@ -74,8 +107,7 @@ class ScheduleDDPM(ScheduleBase):
         # cumulative product of alphas
         self.alphasCumprod: torch.Tensor = torch.cumprod(self.alphas, dim=0)
         self.alphasCumprod_prev: torch.Tensor = torch.tensor([1] + self.alphasCumprod.tolist()[:-1])
-        self.alphasCumprod_sqrt: torch.Tensor = self.alphasCumprod ** 0.5
-        # self.alphasCumprod_oneMinus: torch.Tensor = 1. - self.alphasCumprod
+        self.alphasCumprod_sqrt: torch.Tensor = self.alphasCumprod ** 0.5  # self.alphasCumprod_oneMinus: torch.Tensor = 1. - self.alphasCumprod
         self.alphasCumprod_oneMinus_sqrt: torch.Tensor = (1. - self.alphasCumprod) ** 0.5
         self.std_decay = (1. - self.alphasCumprod_prev) / (1. - self.alphasCumprod)
 
@@ -100,9 +132,9 @@ class ScheduleDDPM(ScheduleBase):
     @classmethod
     @torch.no_grad()
     @torch.inference_mode()
-    def extract(cls, a, t, x_shape):
+    def extract(cls, a, t, x_shape, need_reindex=True):
         batch_size = t.shape[0]
-        index = t - 1
+        index = t - 1 if need_reindex else t
         # index = torch.clip(index, 0, a.shape[0] - 1)
         out = a.gather(-1, index.cpu())
         return out.reshape(
@@ -208,94 +240,143 @@ class ScheduleDDPM(ScheduleBase):
 
 
 class ScheduleDDIM(ScheduleDDPM):
-    def __init__(
-            self,
-            schedule_fn=ScheduleBase.linear_beta_schedule,
-            ddpm_steps: int = 300,
-            ddim_steps: int = 30,
-            ddim_discretize: str = "uniform",
-            ddim_eta: float = 0.
-    ):
-        raise NotImplementedError("DDIM is not implemented yet")
-        super().__init__(schedule_fn, ddpm_steps)
-
-        self.ddim_steps = ddim_steps
-        self.ddim_eta = ddim_eta
-
-        if ddim_discretize == 'uniform':
-            self.ddim_steps_list = torch.arange(0, self.ddpm_T, self.ddpm_T // self.ddim_steps) + 1
-        elif ddim_discretize == 'quad':
-            self.ddim_steps_list = (np.linspace(0, np.sqrt(self.ddpm_T * .8), self.ddim_steps) ** 2).astype(int) + 1
-        else:
-            raise NotImplementedError(f"Discretion method {ddim_discretize} not implemented")
-
-        # betas
-        self.ddim_betas: torch.Tensor = self.betas[
-            self.ddim_steps_list
-        ].clone()
-
-        # alphas
-        self.ddim_alphas: torch.Tensor = self.alphas[
-            self.ddim_steps_list
-        ].clone()
-        self.ddim_alphas_recip_sqrt: torch.Tensor = self.alphas_sqrt_recip[
-            self.ddim_steps_list
-        ].clone()
-
-        # cumulative product of alphas
-        self.ddim_alphasCumprod: torch.Tensor = self.alphasCumprod[
-            self.ddim_steps_list
-        ].clone()
-        self.ddim_alphasCumprod_prev: torch.Tensor = self.alphasCumprod[
-            [0] + self.ddim_steps_list[:-1].tolist()
-            ].clone()
-        self.ddim_alphasCumprod_sqrt: torch.Tensor = self.alphasCumprod_sqrt[
-            self.ddim_steps_list
-        ].clone()
-        self.ddim_alphasCumprod_oneMinus_sqrt: torch.Tensor = self.alphasCumprod_oneMinus_sqrt[
-            self.ddim_steps_list
-        ].clone()
-
-        # posterior std dev
-        self.ddim_posteriorStdDev = (
-                self.ddim_eta *
-                (
-                        (
-                                (1 - self.ddim_alphasCumprod_prev) / (1 - self.ddim_alphasCumprod)
-                        )
-                        *
-                        (
-                                1 - self.ddim_alphasCumprod / self.ddim_alphasCumprod_prev
-                        )
-                ) ** .5
-        )
+    schedule_fn = ScheduleBase.cosine_beta_schedule
+    T = 4000
+    sub_T = 30
+    sub_method = "quadratic"
+    eta = 0.0
 
     @torch.no_grad()
-    @torch.inference_mode()
+    def __init__(
+            self,
+            schedule_fn: callable = ScheduleBase.linear_beta_schedule,
+            ddpm_T: int = 1000,
+    ):
+        super().__init__(schedule_fn, ddpm_T)
+
+        # cumulative product of alphas
+        self.timesteps_ddim = torch.arange(0, self.T + 1, 1)  # [0,1,2,3,4,5,...,T]
+        self.alphas_ddim = self.alphasCumprod_prev  # [0,alphaCumprod_1,alphaCumprod_2,...,alphaCumprod_T]
+        assert len(self.timesteps_ddim) == len(self.alphas_ddim) == self.T + 1
+
+    @torch.no_grad()
     def p_sample(
             self,
             model: torch.nn.Module,
-            x_s: torch.Tensor,  # [B, C, H, W]
-            s: torch.Tensor,  # [B]
+            x_t: torch.Tensor,  # [B, C, H, W]
+            step: torch.Tensor,  # [B]
+            prev_step: torch.Tensor,  # [B]
+            eta: float = 1.0,
     ) -> torch.Tensor:
         # 考虑迭代起点是否是从纯噪声开始
-        extract = functools.partial(self.extract, t=s, x_shape=x_s.shape)
+        extract = functools.partial(self.extract, x_shape=x_t.shape, need_reindex=False)
 
         # 1.extract the parameters at time t
-        beta__t = extract(self.betas)
-        alphasCumprod_oneMinus_sqrt__t = extract(self.alphasCumprod_oneMinus_sqrt)
-        alphas_recip_sqrt__t = extract(self.alphas_sqrt_recip)
-        posteriorVariance__t = extract(self.ddim_posteriorStdDev)
+        """
+        self.alphas_ddim is a list saving [1,a1,a2,a3,a4,a5 .... at,at+1 ... aT]
+        so the right index for alphasCumprod__t or alphasCumprod_prev__t just is t
+        e.g.
+        if we want to get a3, the index should be 3,so need_reindex=False
+        e.g.
+        T=1000, S=30, T%S=10, T-T%S=990, T-T%S+1=991 ,T-T%S+1-S=961
+        alphasCumprod__t - 1 is blow:
+        [0,30,60,90,120,150,180,210,240,270,300,330,360,390,420,450,480,510,540,570,600,630,660,690,720,750,780,810,840,870,900,930,960,990]
+        alphasCumprod__t is blow:
+        [1,31,61,91,121,151,181,211,241,271,301,331,361,391,421,451,481,511,541,571,601,631,661,691,721,751,781,811,841,871,901,931,961,991]
+        alphasCumprod_prev__t is blow:
+        [0, 1,31,61, 91,121,151,181,211,241,271,301,331,361,391,421,451,481,511,541,571,601,631,661,691,721,751,781,811,841,871,901,931,961]
+        """
+        alpha = extract(a=self.alphas_ddim, t=step)  # 1 <= step <= (T-T%S + 1)
+        alphas_prev = extract(a=self.alphas_ddim, t=prev_step)  # 0 <= prev_step <= (T-T%S + 1-S)
+        alpha, alphas_prev = alpha.to(torch.float64), alphas_prev.to(torch.float64)
 
-        # 2.get the distribution of x_{t-1} given x_t
-        mean = alphas_recip_sqrt__t * (x_s - (beta__t / alphasCumprod_oneMinus_sqrt__t) * model(x_s, s))
-        var = posteriorVariance__t ** 0.5
-
-        # 3.sample from the x_{t-1} distribution
-        noise = torch.randn_like(x_s)
-        x_t_prev = mean + var * noise  # parameterization sampling method
+        # 2. calculate x_{t-1}
+        std = eta * torch.sqrt(
+            (1 - alphas_prev) / (1 - alpha)  # variance decay
+            *
+            (1 - alpha / alphas_prev)  # beta_t
+        )  # posterior standard deviation
+        mean = (
+                torch.sqrt(alphas_prev / alpha) * x_t
+                +
+                (
+                        torch.sqrt(1 - alphas_prev - std ** 2)
+                        -
+                        torch.sqrt(
+                            (alphas_prev * (1 - alpha))
+                            /
+                            alpha
+                        )
+                ) * model(x_t, step)
+        )
+        noise = torch.randn_like(x_t)
+        x_t_prev = mean + std * noise  # parameterization sampling method
         return x_t_prev
+
+    @torch.no_grad()
+    def build_sub_schedule(self, steps: int = 1, method="linear") -> tuple[Any, Any]:
+        if method == "linear":
+            sub_indexes = torch.range(0, self.T, self.T // steps) + 1
+        elif method == "quadratic":
+            sub_indexes = (torch.linspace(0, np.sqrt(self.T * 0.8), steps) ** 2).to(torch.int) + 1
+        else:
+            raise NotImplementedError(f"sampling method {method} is not implemented!")
+
+        sub_indexes_prev = torch.tensor([0] + sub_indexes.tolist()[:-1])
+
+        return self.timesteps_ddim[sub_indexes_prev], self.timesteps_ddim[sub_indexes]
+
+    @torch.no_grad()
+    def p_sample_loop(
+            self,
+            model: torch.nn.Module | Callable,
+            time_steps_prev: torch.Tensor | None = None,
+            time_steps: torch.Tensor | None = None,
+            eta: float | None = None,
+            device: torch.device | str = "cuda",
+            shape=(16, 3, 256, 256),
+    ) -> list[torch.Tensor]:
+        batch_size = functools.partial(
+            lambda _: _.flip(0).repeat(shape[0], 1).t().to(device)
+        )  # [S] --> [B, S] --> [S, B]
+
+        eta = self.eta if eta is None else eta
+
+        if time_steps is None or time_steps_prev is None:
+            time_steps_prev, time_steps = self.build_sub_schedule(steps=self.sub_T, method=self.sub_method)
+
+        time_steps_prev, time_steps = batch_size(time_steps_prev).to(device), batch_size(time_steps).to(device)
+
+        x = torch.randn(shape, device=device)
+        res = []
+        for prev_step, step in tqdm(zip(time_steps_prev, time_steps), 'sampling loop time step'):
+            x = self.p_sample(
+                model=model,
+                x_t=x,
+                step=step,
+                prev_step=prev_step,
+                eta=eta
+            )
+            res.append(x)
+        return res
 
 
 if __name__ == "__main__":
-    schedule = ScheduleDDPM()
+    import matplotlib.pyplot as plt
+
+    train_schedules = {
+        'linear': ScheduleDDPM(ScheduleDDPM.linear_beta_schedule, ddpm_T=1000).alphasCumprod[-10:],
+        'cosine': ScheduleDDPM(ScheduleDDPM.cosine_beta_schedule, ddpm_T=1000).alphasCumprod[-10:]
+    }
+    # plot the alphasCumprod
+    for name, schedule in train_schedules.items():
+        plt.plot(schedule, label=name)
+
+    # print the alphasCumprod
+    for name, schedule in train_schedules.items():
+        print(f'{name} alphasCumprod:\n {schedule.tolist()}')
+
+    # save the plot
+    plt.legend()
+    plt.savefig('doc/alphasCumprod_end.png')
+    plt.show()

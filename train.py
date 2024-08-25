@@ -6,7 +6,8 @@ import wandb
 
 from model import Unet, save_model_name, pretrain_model_name, how_to_t, HowTo_t, t_signal_type
 from dataset_FashionMNIST import build_data, image_size, channels
-from schedule import ScheduleDDPM as Schedule
+# from schedule import ScheduleDDPM as Schedule
+from schedule import ScheduleDDIM as Schedule
 from loss import loss_f
 from evaluate import evaluate
 from utils import noise_like
@@ -19,14 +20,14 @@ batch_size = 128
 learning_rate = 1e-3
 schedule_fn = Schedule.schedule_fn
 save_and_evaluate_every = 1000 // 1
-start_save_and_evaluate = 4000
+start_save_and_evaluate = 1000
 
 wandb.login()
 run = wandb.init(
     project="timestep-free-diffusion-model",
     entity="fenneishi",
     name=save_model_name(f'scratch')[0:-4],
-    # mode="disabled",
+    mode="disabled",
     config={
         "learning_rate": learning_rate,
         "batch_size": batch_size,

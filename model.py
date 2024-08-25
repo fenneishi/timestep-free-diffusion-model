@@ -28,8 +28,8 @@ class T_Signal_Type(Enum):
     none = ''
 
 
-how_to_t = HowTo_t.predict_t
-t_signal_type = T_Signal_Type.left
+how_to_t = HowTo_t.input_t
+t_signal_type = T_Signal_Type.none
 pretrain_model_name = None
 
 # for logging and saving model
@@ -431,3 +431,6 @@ class Unet(nn.Module):
 
         x = self.final_res_block(x, t)
         return self.final_conv(x)
+
+# some doc:
+# * https://github.com/pesser/pytorch_diffusion

@@ -24,7 +24,8 @@ import wandb
 # from dataset_CIFAR10 import test_data, training_data, channels, image_size
 from dataset_FashionMNIST import test_data, channels, image_size
 
-from schedule import ScheduleDDPM as Schedule
+# from schedule import ScheduleDDPM as Schedule
+from schedule import ScheduleDDIM as Schedule
 from utils import num_to_groups, clamp
 from model import how_to_t, t_signal_type
 
@@ -83,6 +84,8 @@ def build_fake_data(model: torch.nn.Module | Callable):
 
     # schedule
     schedule = Schedule(schedule_fn=schedule_fn, ddpm_T=T)
+
+
 
     # batch sizes
     batch_sizes = num_to_groups(FakeImgsCount, 1024)
@@ -200,7 +203,6 @@ def evaluate(model: torch.nn.Module | Callable, step: int = 0):
         if not fake_folder.is_dir():
             raise ValueError(f"{fake_folder} is not a directory")
         asyncio.run(delete_files_in_directory(fake_folder))
-
 
 
 if __name__ == "__main__":
