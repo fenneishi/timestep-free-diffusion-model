@@ -33,7 +33,7 @@ evaluate_folder = f'./evaluate_{how_to_t.value}_{t_signal_type.value}'
 evaluate_folder = Path(evaluate_folder).absolute()
 fake_folder = evaluate_folder / 'fake'
 real_folder = evaluate_folder / 'real'
-FakeImgsCount = 10000
+FakeImgsCount = 10
 
 vmeory = round(torch.cuda.get_device_properties(0).total_memory / (1024 ** 3))
 
@@ -79,8 +79,8 @@ def build_fake_data(model: torch.nn.Module | Callable):
     assert torch.cuda.is_available()
 
     # config
-    schedule_fn = Schedule.schedule_fn_default
-    T = Schedule.T_default
+    schedule_fn = Schedule.linear_beta_schedule
+    T = 4000
 
     # schedule
     schedule = Schedule(schedule_fn=schedule_fn, T=T)
@@ -94,9 +94,14 @@ def build_fake_data(model: torch.nn.Module | Callable):
 
     # generate images
     def gen_imgs(batch_size: int) -> list[torch.Tensor]:
+        time_steps_prev, time_steps = schedule.build_sub_steps(steps=100, method='linear')
+
         res = schedule.p_sample_loop(
             model=model,
-            shape=(batch_size, channels, image_size, image_size)
+            shape=(batch_size, channels, image_size, image_size),
+            eta=0.0,
+            time_steps=time_steps,
+            time_steps_prev=time_steps_prev,
         )
         # batch_diffusion_imgs = [[bc[i] for bc in res] for i in range(64)]
         # batch_diffusion_imgs = [(torch.stack(i) + 1) * 0.5 for i in batch_diffusion_imgs]

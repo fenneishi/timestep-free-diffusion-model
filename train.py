@@ -15,24 +15,25 @@ from utils import noise_like
 assert torch.cuda.is_available()
 device = "cuda"
 epochs = 22  # every 1 epoch has 468 steps when batch_size=128 in FashionMNIST
-T = Schedule.T_default
+T = 4000
 batch_size = 128
 learning_rate = 1e-3
-schedule_fn = Schedule.schedule_fn_default
-save_and_evaluate_every = 1000 // 1
-start_save_and_evaluate = 10000
+schedule_fn = Schedule.linear_beta_schedule
+save_and_evaluate_every = 10000 // 1
+start_save_and_evaluate = 0
 
 wandb.login()
 run = wandb.init(
     project="timestep-free-diffusion-model",
     entity="fenneishi",
     name=save_model_name(f'scratch')[0:-4],
-    # mode="disabled",
+    mode="disabled",
     config={
         "learning_rate": learning_rate,
         "batch_size": batch_size,
         "epochs": epochs,
         "T": T,
+        'schedule': Schedule.__name__,
         "schedule_fn": schedule_fn.__name__,
         "save_and_sample_every": save_and_evaluate_every,
         "image_size": image_size,
@@ -49,8 +50,8 @@ print(
     f'######################################\n'
     f'run_id: {run.id}\n'
     f'run_name: {run.name}\n'
-    f'run_config: {run.config}\n'
-    f'\n######################################'
+    f'run_config: \n' + '\n'.join([f' * {key}: {value}' for key, value in run.config.items()]) + '\n'
+                                                                                            f'######################################'
 )
 
 schedule = Schedule(schedule_fn=schedule_fn, T=T)
@@ -93,9 +94,9 @@ def save_model():
     print(f"Model saved at {model_name}")
 
 
-for epoch in range(epochs):
+for epoch in tqdm(range(epochs), desc="epochs", colour='green'):
     print(f"epoch {epoch},step {step}")
-    for x_0, _ in tqdm(dataloader, desc=f"epoch {epoch}"):
+    for x_0, _ in tqdm(dataloader, desc=f"epoch {epoch}", leave=True):
         optimizer.zero_grad()
         # class labels
         # _ = (_ + 1).to(device)
@@ -136,7 +137,11 @@ for epoch in range(epochs):
         optimizer.step()
 
         # evaluate and save model
-        if step % save_and_evaluate_every == 0 and step >= start_save_and_evaluate and step > 0:
+        if (
+                (step % save_and_evaluate_every == 0 and step >= start_save_and_evaluate and step > 0)
+                or
+                step == start_save_and_evaluate
+        ):
             evaluate_model()
             save_model()
 

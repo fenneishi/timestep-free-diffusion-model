@@ -53,6 +53,7 @@ class ScheduleBase:
 
     @staticmethod
     def cosine_beta_schedule(train_steps: int, s=0.008) -> torch.Tensor:
+        raise NotImplementedError("cosine_beta_schedule is not implemented!")
         """
         cosine schedule as proposed in https://arxiv.org/abs/2102.09672 ''Improved Denoising Diffusion Probabilistic Models''
         """
@@ -213,7 +214,7 @@ class ScheduleDDPM(ScheduleBase):
         # noise = noise_like(x_t) if noise is None else noise
         noise = torch.randn_like(x_t)
         x_t_prev = mean + std * noise  # parameterization sampling method
-        return x_t_prev
+        return x_t_prev.to(x_t.dtype)
 
     @torch.no_grad()
     def p_sample_loop(
@@ -286,10 +287,10 @@ class ScheduleDDPM(ScheduleBase):
 
 
 class ScheduleDDIM(ScheduleDDPM):
-    schedule_fn_default = ScheduleBase.cosine_beta_schedule
+    schedule_fn_default = ScheduleBase.linear_beta_schedule
     T_default = 4000
-    sub_T_default = 30
-    sub_method_default = "quadratic"
+    sub_T_default = 100
+    sub_method_default = "linear"
     eta_default = 0.0
 
     @torch.no_grad()
@@ -344,6 +345,23 @@ class ScheduleDDIM(ScheduleDDPM):
             *
             (1 - alpha / alphas_prev)  # beta_t
         )  # posterior standard deviation
+        # mean = (
+        #         (
+        #             torch.sqrt(alphas_prev / alpha)
+        #         ) * x_t
+        #         -
+        #         (
+        #             (
+        #                     torch.sqrt(
+        #                         (alphas_prev * (1 - alpha))
+        #                         /
+        #                         alpha
+        #                     )
+        #                     -
+        #                     torch.sqrt(1 - alphas_prev - std ** 2)
+        #             )
+        #         ) * model(x_t, step)
+        # )
         mean = (
                 torch.sqrt(alphas_prev / alpha) * x_t
                 +
@@ -359,12 +377,12 @@ class ScheduleDDIM(ScheduleDDPM):
         )
         noise = torch.randn_like(x_t)
         x_t_prev = mean + std * noise  # parameterization sampling method
-        return x_t_prev
+        return x_t_prev.to(x_t.dtype)
 
     @torch.no_grad()
     def build_sub_steps(self, steps: int = 50, method="linear") -> tuple[Any, Any]:
         if method == "linear":
-            sub_indexes = torch.range(0, self.T, self.T // steps) + 1
+            sub_indexes = torch.arange(0, self.T, self.T // steps).to(torch.int) + 1
         elif method == "quadratic":
             sub_indexes = (torch.linspace(0, np.sqrt(self.T * 0.8), steps) ** 2).to(torch.int) + 1
         else:
@@ -388,7 +406,7 @@ class ScheduleDDIM(ScheduleDDPM):
             lambda _: _.flip(0).repeat(shape[0], 1).t().to(device)
         )  # [S] --> [B, S] --> [S, B]
 
-        eta = self.eta if eta is None else eta
+        eta = self.eta_default if eta is None else eta
 
         if time_steps is None or time_steps_prev is None:
             time_steps_prev, time_steps = self.build_sub_steps(steps=self.sub_T_default, method=self.sub_method_default)
@@ -407,7 +425,6 @@ class ScheduleDDIM(ScheduleDDPM):
             )
             res.append(x)
         return res
-
 
     @classmethod
     def plot_noise_levels(cls):
