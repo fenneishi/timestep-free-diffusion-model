@@ -79,11 +79,11 @@ def build_fake_data(model: torch.nn.Module | Callable):
     assert torch.cuda.is_available()
 
     # config
-    schedule_fn = Schedule.schedule_fn
-    T = Schedule.T
+    schedule_fn = Schedule.schedule_fn_default
+    T = Schedule.T_default
 
     # schedule
-    schedule = Schedule(schedule_fn=schedule_fn, ddpm_T=T)
+    schedule = Schedule(schedule_fn=schedule_fn, T=T)
 
 
 

@@ -25,6 +25,6 @@ def loss_f(
         t_loss = loss_fn(predicted_t, t)
         if step % 10 == 0 and wandb.run is not None:
             wandb.log(data={"t_loss": t_loss.item()}, step=step)
-        loss = 0.9 * loss + 0.1 * t_loss  # todo λ = 0.001 prevent t_loss from overwhelming loss
+        loss = loss + 0.001 * t_loss  # λ = 0.001 prevent t_loss from overwhelming loss
 
     return loss

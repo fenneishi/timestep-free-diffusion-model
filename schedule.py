@@ -1,4 +1,5 @@
 import functools
+import os
 from typing import Callable, Tuple, Any
 
 import numpy as np
@@ -82,20 +83,20 @@ class ScheduleBase:
 
 
 class ScheduleDDPM(ScheduleBase):
-    schedule_fn = ScheduleBase.cosine_beta_schedule
-    T = 1000
+    schedule_fn_default = ScheduleBase.cosine_beta_schedule
+    T_default = 1000
 
     @torch.no_grad()
     def __init__(
             self,
             schedule_fn: callable = ScheduleBase.linear_beta_schedule,
-            ddpm_T: int = 1000,
+            T: int = 1000,
     ):
         self.schedule_fn: callable = schedule_fn
-        self.ddpm_T: int = ddpm_T
+        self.T: int = T
 
         # betas
-        self.betas: torch.Tensor = self.schedule_fn(train_steps=self.ddpm_T)
+        self.betas: torch.Tensor = self.schedule_fn(train_steps=self.T)
         self.betas = self.betas.to(torch.float64)
         # torch.tensor([0] + self.schedule_fn(train_steps=self.ddpm_steps).tolist()))
 
@@ -117,7 +118,7 @@ class ScheduleDDPM(ScheduleBase):
 
     @torch.no_grad()
     def uniform_t_sample(self, batch_size: int, device: torch.device | str) -> torch.Tensor:
-        return torch.randint(1, self.ddpm_T, (batch_size,), device=device)
+        return torch.randint(1, self.T, (batch_size,), device=device)
 
     @torch.no_grad()
     def normal_t_sample(self, batch_size: int, device: torch.device | str) -> torch.Tensor:
@@ -166,7 +167,7 @@ class ScheduleDDPM(ScheduleBase):
         noise = noise_like(x_0) if noise is None else noise
         x_t = mean + std * noise  # parameterization sampling method
 
-        return x_t
+        return x_t.to(x_0.dtype)
 
     @torch.no_grad()
     @torch.inference_mode()
@@ -222,7 +223,7 @@ class ScheduleDDPM(ScheduleBase):
             device: torch.device | str = "cuda"
     ) -> list[torch.Tensor]:
         batch_size = shape[0]
-        steps = (torch.arange(0, self.ddpm_T) + 1).flip(0).repeat(batch_size, 1).t().to(device)
+        steps = (torch.arange(0, self.T) + 1).flip(0).repeat(batch_size, 1).t().to(device)
         # x = noise_(shape, device=device)
         x = torch.randn(shape, device=device)
         res = []
@@ -238,25 +239,72 @@ class ScheduleDDPM(ScheduleBase):
 
         return res
 
+    @classmethod
+    def plot_noise_levels(cls):
+        import matplotlib.pyplot as plt
+
+        save_dir = f'doc/{cls.__name__}'
+        os.makedirs(save_dir, exist_ok=True)
+
+        train_schedules = {
+            'cosine': cls(cls.cosine_beta_schedule, ddpm_T=1000).alphasCumprod,
+            'quadratic': cls(cls.quadratic_beta_schedule, ddpm_T=1000).alphasCumprod,
+            'sigmoid': cls(cls.sigmoid_beta_schedule, ddpm_T=1000).alphasCumprod,
+            'linear': cls(cls.linear_beta_schedule, ddpm_T=1000).alphasCumprod,
+        }
+
+        colours = {
+            'cosine': 'red',
+            'quadratic': 'green',
+            'sigmoid': 'blue',
+            'linear': 'grey',
+        }
+
+        steps_range = {
+            'start10': (None, 10),
+            'start30': (None, 30),
+            'start60': (None, 60),
+            'start100': (None, 100),
+            'end10': (-10, None),
+            'end30': (-30, None),
+            'end60': (-60, None),
+            'end100': (-100, None),
+            'all': (None, None),
+        }
+
+        for step_range_name, steps_range in steps_range.items():
+            # plot
+            for name, schedule in train_schedules.items():
+                schedule = schedule[steps_range[0]:steps_range[1]]
+                plt.plot(schedule, label=name, color=colours[name])
+                # print(f'{name} alphasCumprod:\n {schedule.tolist()}')
+
+            # save
+            plt.legend()
+            plt.savefig(f'{save_dir}/alphasCumprod_{step_range_name}.png')
+            plt.close()
+
 
 class ScheduleDDIM(ScheduleDDPM):
-    schedule_fn = ScheduleBase.cosine_beta_schedule
-    T = 4000
-    sub_T = 30
-    sub_method = "quadratic"
-    eta = 0.0
+    schedule_fn_default = ScheduleBase.cosine_beta_schedule
+    T_default = 4000
+    sub_T_default = 30
+    sub_method_default = "quadratic"
+    eta_default = 0.0
 
     @torch.no_grad()
     def __init__(
             self,
             schedule_fn: callable = ScheduleBase.linear_beta_schedule,
-            ddpm_T: int = 1000,
+            T: int = 1000,
     ):
-        super().__init__(schedule_fn, ddpm_T)
+        super().__init__(schedule_fn, T)
 
         # cumulative product of alphas
-        self.timesteps_ddim = torch.arange(0, self.T + 1, 1)  # [0,1,2,3,4,5,...,T]
-        self.alphas_ddim = self.alphasCumprod_prev  # [0,alphaCumprod_1,alphaCumprod_2,...,alphaCumprod_T]
+        # [0,1,2,3,4,5,...,T]
+        self.timesteps_ddim = torch.arange(0, self.T + 1, 1)
+        # [1,alphaCumprod_1,alphaCumprod_2,...,alphaCumprod_T]
+        self.alphas_ddim = torch.tensor([1] + self.alphasCumprod.tolist())
         assert len(self.timesteps_ddim) == len(self.alphas_ddim) == self.T + 1
 
     @torch.no_grad()
@@ -314,7 +362,7 @@ class ScheduleDDIM(ScheduleDDPM):
         return x_t_prev
 
     @torch.no_grad()
-    def build_sub_schedule(self, steps: int = 1, method="linear") -> tuple[Any, Any]:
+    def build_sub_steps(self, steps: int = 50, method="linear") -> tuple[Any, Any]:
         if method == "linear":
             sub_indexes = torch.range(0, self.T, self.T // steps) + 1
         elif method == "quadratic":
@@ -343,7 +391,7 @@ class ScheduleDDIM(ScheduleDDPM):
         eta = self.eta if eta is None else eta
 
         if time_steps is None or time_steps_prev is None:
-            time_steps_prev, time_steps = self.build_sub_schedule(steps=self.sub_T, method=self.sub_method)
+            time_steps_prev, time_steps = self.build_sub_steps(steps=self.sub_T_default, method=self.sub_method_default)
 
         time_steps_prev, time_steps = batch_size(time_steps_prev).to(device), batch_size(time_steps).to(device)
 
@@ -361,22 +409,54 @@ class ScheduleDDIM(ScheduleDDPM):
         return res
 
 
+    @classmethod
+    def plot_noise_levels(cls):
+        import matplotlib.pyplot as plt
+
+        save_dir = f'doc/{cls.__name__}'
+        os.makedirs(save_dir, exist_ok=True)
+
+        train_schedules = {
+            'cosine': cls(cls.cosine_beta_schedule, T=1000),
+            'quadratic': cls(cls.quadratic_beta_schedule, T=1000),
+            'sigmoid': cls(cls.sigmoid_beta_schedule, T=1000),
+            'linear': cls(cls.linear_beta_schedule, T=1000),
+        }
+
+        colours = {
+            'cosine': 'red',
+            'quadratic': 'green',
+            'sigmoid': 'blue',
+            'linear': 'grey',
+        }
+
+        steps_range = {
+            'start10': (None, 10),
+            'start30': (None, 30),
+            'start60': (None, 60),
+            'start100': (None, 100),
+            'end10': (-10, None),
+            'end30': (-30, None),
+            'end60': (-60, None),
+            'end100': (-100, None),
+            'all': (None, None),
+        }
+
+        for step_range_name, steps_range in steps_range.items():
+            # plot
+            for name, schedule in train_schedules.items():
+                steps = schedule.timesteps_ddim[steps_range[0]:steps_range[1]]
+                signal_levels = schedule.alphas_ddim[steps_range[0]:steps_range[1]]
+                plt.plot(steps, signal_levels, label=name, color=colours[name])
+                # print(f'{name} alphasCumprod:\n {schedule.tolist()}')
+
+            # save
+            plt.legend()
+            plt.savefig(f'{save_dir}/alphasCumprod_{step_range_name}.png')
+            plt.close()
+
+
 if __name__ == "__main__":
-    import matplotlib.pyplot as plt
-
-    train_schedules = {
-        'linear': ScheduleDDPM(ScheduleDDPM.linear_beta_schedule, ddpm_T=1000).alphasCumprod[-10:],
-        'cosine': ScheduleDDPM(ScheduleDDPM.cosine_beta_schedule, ddpm_T=1000).alphasCumprod[-10:]
-    }
-    # plot the alphasCumprod
-    for name, schedule in train_schedules.items():
-        plt.plot(schedule, label=name)
-
-    # print the alphasCumprod
-    for name, schedule in train_schedules.items():
-        print(f'{name} alphasCumprod:\n {schedule.tolist()}')
-
-    # save the plot
-    plt.legend()
-    plt.savefig('doc/alphasCumprod_end.png')
-    plt.show()
+    # ScheduleDDPM.plot_noise_levels()
+    ScheduleDDIM.plot_noise_levels()
+    # pass

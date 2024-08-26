@@ -15,19 +15,19 @@ from utils import noise_like
 assert torch.cuda.is_available()
 device = "cuda"
 epochs = 22  # every 1 epoch has 468 steps when batch_size=128 in FashionMNIST
-T = Schedule.T
+T = Schedule.T_default
 batch_size = 128
 learning_rate = 1e-3
-schedule_fn = Schedule.schedule_fn
+schedule_fn = Schedule.schedule_fn_default
 save_and_evaluate_every = 1000 // 1
-start_save_and_evaluate = 1000
+start_save_and_evaluate = 10000
 
 wandb.login()
 run = wandb.init(
     project="timestep-free-diffusion-model",
     entity="fenneishi",
     name=save_model_name(f'scratch')[0:-4],
-    mode="disabled",
+    # mode="disabled",
     config={
         "learning_rate": learning_rate,
         "batch_size": batch_size,
@@ -53,7 +53,7 @@ print(
     f'\n######################################'
 )
 
-schedule = Schedule(schedule_fn=schedule_fn, ddpm_T=T)
+schedule = Schedule(schedule_fn=schedule_fn, T=T)
 model = Unet(
     dim=image_size,
     channels=channels,
