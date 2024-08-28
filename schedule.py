@@ -6,8 +6,7 @@ import numpy as np
 from tqdm.auto import tqdm
 
 import torch
-
-from utils import noise_, noise_like
+import matplotlib.pyplot as plt
 
 
 def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_timesteps):
@@ -84,14 +83,14 @@ class ScheduleBase:
 
 
 class ScheduleDDPM(ScheduleBase):
-    schedule_fn_default = ScheduleBase.cosine_beta_schedule
+    schedule_fn_default = ScheduleBase.linear_beta_schedule
     T_default = 1000
 
     @torch.no_grad()
     def __init__(
             self,
-            schedule_fn: callable = ScheduleBase.linear_beta_schedule,
-            T: int = 1000,
+            schedule_fn: callable,
+            T: int,
     ):
         self.schedule_fn: callable = schedule_fn
         self.T: int = T
@@ -133,7 +132,6 @@ class ScheduleDDPM(ScheduleBase):
 
     @classmethod
     @torch.no_grad()
-    @torch.inference_mode()
     def extract(cls, a, t, x_shape, need_reindex=True):
         batch_size = t.shape[0]
         index = t - 1 if need_reindex else t
@@ -144,16 +142,18 @@ class ScheduleDDPM(ScheduleBase):
             *((1,) * (len(x_shape) - 1))
         ).to(t.device)  # [B] -> [B, 1, 1, 1]
 
+    """
+    forward diffusion (using the nice property)
+    """
+
     @torch.no_grad()
     def q_sample(
             self,
             x_0: torch.Tensor,  # [B, C, H, W]
             t: torch.Tensor,  # [B]
-            noise: torch.Tensor | None = None  # [B, C, H, W]
+            noise: torch.Tensor  # [B, C, H, W]
     ) -> torch.Tensor:
-        """
-        forward diffusion (using the nice property)
-        """
+
         extract = functools.partial(self.extract, t=t, x_shape=x_0.shape)
 
         # extract the parameters at time t
@@ -165,23 +165,23 @@ class ScheduleDDPM(ScheduleBase):
         std = alphasCumprod_oneMinus_sqrt__t
 
         # sample from the x_t distribution
-        noise = noise_like(x_0) if noise is None else noise
+        assert noise is not None and noise.shape == x_0.shape
         x_t = mean + std * noise  # parameterization sampling method
 
         return x_t.to(x_0.dtype)
 
+    """
+    reverse diffusion  (denoising)
+    """
+
     @torch.no_grad()
-    @torch.inference_mode()
     def p_sample(
             self,
             model: torch.nn.Module,
             x_t: torch.Tensor,  # [B, C, H, W]
             t: torch.Tensor,  # [B]
-            noise: torch.Tensor | None = None  # [B, C, H, W]
     ) -> torch.Tensor:
-        """
-        reverse diffusion  (denoising)
-        """
+
         extract = functools.partial(self.extract, t=t, x_shape=x_t.shape)
 
         # 1.extract the parameters at time t
@@ -190,31 +190,25 @@ class ScheduleDDPM(ScheduleBase):
         alphasCumprod_oneMinus_sqrt__t = extract(self.alphasCumprod_oneMinus_sqrt)
         posteriorStdDev__t = extract(self.posteriorStdDev)
 
-        # alphas_sqrt__t = extract(self.alphas_sqrt)
-        # alphasCumprod_prev__t = extract(self.alphasCumprod_prev)
-        # alphasCumprod_oneMinus__t = extract(self.alphasCumprod_oneMinus)
-        # alphasCumprod_sqrt__t = extract(self.alphasCumprod_sqrt)
-        # std_decay__t = extract(self.std_decay)
-        # def get_mean(error_t):
-        #     x_0 = alphasCumprod_sqrt__t(x_t - alphasCumprod_oneMinus_sqrt__t * error_t)
-        #     mean = (
-        #             alphas_sqrt__t * std_decay__t * x_t
-        #             +
-        #             alphasCumprod_oneMinus__t * (alphasCumprod_prev__t ** 0.5) * beta__t * x_0
-        #     )
-        #     return mean
-
         # 2.get the distribution of x_{t-1} given x_t
+        std = posteriorStdDev__t
         mean = alphas_sqrt_recip__t * (
                 x_t - (beta__t / alphasCumprod_oneMinus_sqrt__t) * model(x_t, t)
         )
-        std = posteriorStdDev__t
+        mean2 = (
+                (
+                    coff0 := alphas_sqrt_recip__t
+                ) * x_t
+                +
+                (
+                    coff1 := -alphas_sqrt_recip__t * (beta__t / alphasCumprod_oneMinus_sqrt__t)
+                ) * model(x_t, t)
+        )
 
         # 3.sample from the x_{t-1} distribution
-        # noise = noise_like(x_t) if noise is None else noise
         noise = torch.randn_like(x_t)
         x_t_prev = mean + std * noise  # parameterization sampling method
-        return x_t_prev.to(x_t.dtype)
+        return x_t_prev.to(x_t.dtype), coff0, coff1
 
     @torch.no_grad()
     def p_sample_loop(
@@ -228,8 +222,11 @@ class ScheduleDDPM(ScheduleBase):
         # x = noise_(shape, device=device)
         x = torch.randn(shape, device=device)
         res = []
+        coff0_s, coff1_s = [], []
         for t in tqdm(steps, 'sampling loop time step'):
-            x = self.p_sample(model, x, t)
+            x, coff0, coff1 = self.p_sample(model, x, t)
+            coff0_s.append(coff0[0].item())
+            coff1_s.append(coff1[0].item())
             res.append(x)
 
         # epio = 1e-3
@@ -238,7 +235,9 @@ class ScheduleDDPM(ScheduleBase):
         #     if t<epio:
         #         break
 
-        return res
+        # plt the coefficient
+
+        return res, coff0_s, coff1_s
 
     @classmethod
     def plot_noise_levels(cls):
@@ -285,28 +284,69 @@ class ScheduleDDPM(ScheduleBase):
             plt.savefig(f'{save_dir}/alphasCumprod_{step_range_name}.png')
             plt.close()
 
+    @classmethod
+    def debug_p_sample_loop(cls):
+        def model(x, t):
+            return torch.randn_like(x)
+
+        schedule = cls(cls.linear_beta_schedule, T=1000)
+
+        res, coefficient0_s, coefficient1_s = schedule.p_sample_loop(model, shape=(16, 3, 256, 256), device='cuda')
+
+        #
+        std_update = [(c0 ** 2 + c1 ** 2) ** 0.5 for c0, c1 in zip(coefficient0_s, coefficient1_s)]
+        # cumulative product of std_update
+        std_update_cum = torch.cumprod(torch.tensor(std_update), dim=0).tolist()
+        std_update_total = std_update_cum[-1]
+        plt.plot(coefficient0_s, label='coefficient0')
+        plt.plot(coefficient1_s, label='coefficient1')
+        # plt.plot(std_update, label='std_update')
+        plt.legend()
+        # save plt to disk
+        plt.savefig(f'coefficients_{cls.__name__}.png')
+        plt.show()
+        plt.close()
+
+        return res, coefficient0_s, coefficient1_s, std_update_cum
+
 
 class ScheduleDDIM(ScheduleDDPM):
     schedule_fn_default = ScheduleBase.linear_beta_schedule
     T_default = 4000
-    sub_T_default = 100
-    sub_method_default = "linear"
+    sample_T_default = 100
+    sample_T_method_default = "linear"
     eta_default = 0.0
 
     @torch.no_grad()
     def __init__(
             self,
-            schedule_fn: callable = ScheduleBase.linear_beta_schedule,
-            T: int = 1000,
+            schedule_fn: callable,
+            T: int,
     ):
         super().__init__(schedule_fn, T)
 
         # cumulative product of alphas
-        # [0,1,2,3,4,5,...,T]
-        self.timesteps_ddim = torch.arange(0, self.T + 1, 1)
-        # [1,alphaCumprod_1,alphaCumprod_2,...,alphaCumprod_T]
-        self.alphas_ddim = torch.tensor([1] + self.alphasCumprod.tolist())
+        self.timesteps_ddim = torch.arange(0, self.T + 1, 1)  # [0,1,             2,                 T             ]
+        self.alphas_ddim = torch.tensor(
+            [1] + self.alphasCumprod.tolist())  # [1,alphaCumprod_1,alphaCumprod_2,...,alphaCumprod_T]
         assert len(self.timesteps_ddim) == len(self.alphas_ddim) == self.T + 1
+        """
+        timesteps_ddim is one-to-one mapping to alphas_ddim
+        """
+        """
+        Only used the notation α_t( ̄αt in ddpm ) for three reasons: 
+        First, 
+        it makes it more clear that we only need to choose one set of hyperparameters, reducing possible 
+        cross-references of the derived variables. 
+        Second, 
+        it allows us to introduce the generalization as well as 
+        the acceleration case easier, because the inference process is no longer motivated by a diffusion. 
+        Third, 
+        there exists an isomorphism between α1:T and 1, . . . , T , which is not the case for βt.(different t may map 
+        to the same βt)
+        Fourth,
+        1-a_t(or 1 -  ̄αt in ddpm) represents the noise level at time t
+        """
 
     @torch.no_grad()
     def p_sample(
@@ -317,7 +357,7 @@ class ScheduleDDIM(ScheduleDDPM):
             prev_step: torch.Tensor,  # [B]
             eta: float = 1.0,
     ) -> torch.Tensor:
-        # 考虑迭代起点是否是从纯噪声开始
+
         extract = functools.partial(self.extract, x_shape=x_t.shape, need_reindex=False)
 
         # 1.extract the parameters at time t
@@ -345,42 +385,31 @@ class ScheduleDDIM(ScheduleDDPM):
             *
             (1 - alpha / alphas_prev)  # beta_t
         )  # posterior standard deviation
-        # mean = (
-        #         (
-        #             torch.sqrt(alphas_prev / alpha)
-        #         ) * x_t
-        #         -
-        #         (
-        #             (
-        #                     torch.sqrt(
-        #                         (alphas_prev * (1 - alpha))
-        #                         /
-        #                         alpha
-        #                     )
-        #                     -
-        #                     torch.sqrt(1 - alphas_prev - std ** 2)
-        #             )
-        #         ) * model(x_t, step)
-        # )
+
         mean = (
-                torch.sqrt(alphas_prev / alpha) * x_t
+                (
+                    coefficient0 := torch.sqrt(alphas_prev / alpha)
+                ) * x_t
                 +
                 (
-                        torch.sqrt(1 - alphas_prev - std ** 2)
-                        -
-                        torch.sqrt(
-                            (alphas_prev * (1 - alpha))
-                            /
-                            alpha
-                        )
+                    coefficient1 := (
+                            torch.sqrt(1 - alphas_prev - std ** 2)
+                            -
+                            torch.sqrt(
+                                (alphas_prev * (1 - alpha))
+                                /
+                                alpha
+                            )
+                    )
                 ) * model(x_t, step)
         )
         noise = torch.randn_like(x_t)
         x_t_prev = mean + std * noise  # parameterization sampling method
-        return x_t_prev.to(x_t.dtype)
+        return x_t_prev.to(x_t.dtype), coefficient0, coefficient1
 
     @torch.no_grad()
     def build_sub_steps(self, steps: int = 50, method="linear") -> tuple[Any, Any]:
+        # todo:考虑迭代起点是否是从纯噪声开始
         if method == "linear":
             sub_indexes = torch.arange(0, self.T, self.T // steps).to(torch.int) + 1
         elif method == "quadratic":
@@ -409,14 +438,16 @@ class ScheduleDDIM(ScheduleDDPM):
         eta = self.eta_default if eta is None else eta
 
         if time_steps is None or time_steps_prev is None:
-            time_steps_prev, time_steps = self.build_sub_steps(steps=self.sub_T_default, method=self.sub_method_default)
+            time_steps_prev, time_steps = self.build_sub_steps(steps=self.sample_T_default,
+                                                               method=self.sample_T_method_default)
 
         time_steps_prev, time_steps = batch_size(time_steps_prev).to(device), batch_size(time_steps).to(device)
 
         x = torch.randn(shape, device=device)
         res = []
+        coefficient0_s, coefficient1_s = [], []
         for prev_step, step in tqdm(zip(time_steps_prev, time_steps), 'sampling loop time step'):
-            x = self.p_sample(
+            x, coefficient0, coefficient1 = self.p_sample(
                 model=model,
                 x_t=x,
                 step=step,
@@ -424,7 +455,10 @@ class ScheduleDDIM(ScheduleDDPM):
                 eta=eta
             )
             res.append(x)
-        return res
+            coefficient0_s.append(coefficient0[0].item())
+            coefficient1_s.append(coefficient1[0].item())
+
+        return res, coefficient0_s, coefficient1_s
 
     @classmethod
     def plot_noise_levels(cls):
@@ -472,8 +506,78 @@ class ScheduleDDIM(ScheduleDDPM):
             plt.savefig(f'{save_dir}/alphasCumprod_{step_range_name}.png')
             plt.close()
 
+    @classmethod
+    def debug_p_sample_loop(cls, sub_steps=1000, eta=1.0):
+        def model(x, t):
+            return torch.randn_like(x)
+
+        schedule = cls(cls.linear_beta_schedule, T=1000)
+
+        time_steps_prev, time_steps = schedule.build_sub_steps(steps=sub_steps, method="linear")
+
+        res, coefficient0_s, coefficient1_s = schedule.p_sample_loop(
+            model,
+            time_steps_prev=time_steps_prev,
+            time_steps=time_steps,
+            eta=eta,
+            shape=(16, 3, 256, 256),
+            device='cuda'
+        )
+        std_update = [(c0 ** 2 + c1 ** 2) ** 0.5 for c0, c1 in zip(coefficient0_s, coefficient1_s)]
+        std_update_cum = torch.cumprod(torch.tensor(std_update), dim=0).tolist()
+        std_update_total = std_update_cum[-1]
+        plt.plot(coefficient0_s, label='coefficient0')
+        plt.plot(coefficient1_s, label='coefficient1')
+        plt.legend()
+        # save plt to disk
+        plt.savefig(f'coefficients_{cls.__name__}.png')
+        plt.show()
+        plt.close()
+
+        global res_ddpm, coeff0_s_ddpm, coeff1_s_ddpm, std_update_cum_ddpm
+        if res_ddpm is None:
+            res_ddpm, coeff0_s_ddpm, coeff1_s_ddpm, std_update_cum_ddpm = ScheduleDDPM.debug_p_sample_loop()
+
+        diff_coeff0 = [abs(a - b) for a, b in zip(coeff0_s_ddpm, coefficient0_s)]
+        diff_coeff1 = [abs(a - b) for a, b in zip(coeff1_s_ddpm, coefficient1_s)]
+        diff_std_update = [abs(a - b) for a, b in zip(std_update_cum_ddpm, std_update_cum)]
+
+        is_zero = functools.partial(lambda f, epsilon=1e-6: abs(f) < epsilon)
+
+        for i, (c0, c1, std) in enumerate(zip(diff_coeff0, diff_coeff1, diff_std_update)):
+            if not is_zero(c0):
+                print(f'c0 diff at {i} is {c0}')
+            if not is_zero(c1):
+                print(f'c1 diff at {i} is {c1}')
+            if not is_zero(std, 1e-4):
+                print(f'std diff at {i} is {std}')
+
+        plt.plot([i + 1 for i in range(1000)], std_update_cum_ddpm, label='std_update_cum_ddpm')
+        plt.plot(time_steps.tolist(), std_update_cum, label='std_update_cum_ddim')
+        plt.legend()
+        plt.savefig(f'std_update_cum_{cls.__name__}_{sub_steps}.png')
+        plt.show()
+        plt.close()
+
+        return res, coefficient0_s, coefficient1_s, std_update_cum, time_steps.tolist()
+
 
 if __name__ == "__main__":
     # ScheduleDDPM.plot_noise_levels()
-    ScheduleDDIM.plot_noise_levels()
-    # pass
+    # ScheduleDDIM.plot_noise_levels()
+    res_ddpm, coeff0_s_ddpm, coeff1_s_ddpm, std_update_cum_ddpm = None, None, None, None
+
+    for eta in [0.0, 0.5, 1.0]:
+        std_update_cum_res = []
+        sub_steps_list = [50, 100, 500, 1000]
+        for sub_steps in sub_steps_list:
+            _, __, ___, std_update_cum, time_steps = ScheduleDDIM.debug_p_sample_loop(sub_steps=sub_steps,eta=eta)
+            std_update_cum_res.append((std_update_cum, time_steps))
+
+        for std_update_cum, time_steps in std_update_cum_res:
+            plt.plot(time_steps, std_update_cum, label=f'std_update_cum_{len(time_steps)}')
+        plt.plot([i + 1 for i in range(1000)], std_update_cum_ddpm, label='std_update_cum_ddpm',color='black', linestyle='--')
+        plt.legend()
+        plt.savefig(f'std_update_cum_all_{eta}.png')
+        plt.show()
+        plt.close()
