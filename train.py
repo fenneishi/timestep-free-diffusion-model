@@ -1,60 +1,12 @@
-import torch
+
 from torch.optim import Adam
-
-from tqdm import tqdm
-import wandb
-
-from model import Unet, save_model_name, pretrain_model_name, how_to_t, HowTo_t, t_signal_type
-from dataset_FashionMNIST import build_data, image_size, channels
-# from schedule import ScheduleDDPM as Schedule
-from schedule import ScheduleDDIM as Schedule
+from dataset_FashionMNIST import build_data
 from loss import loss_f
+from model import Unet, HowTo_t
+from tqdm import tqdm
 from evaluate import evaluate
-from utils import noise_like
+from config import *
 
-assert torch.cuda.is_available()
-device = "cuda"
-epochs = 22  # every 1 epoch has 468 steps when batch_size=128 in FashionMNIST
-T = 4000
-batch_size = 128
-learning_rate = 1e-3
-schedule_fn = Schedule.linear_beta_schedule
-save_and_evaluate_every = 10000 // 1
-start_save_and_evaluate = 0
-
-wandb.login()
-run = wandb.init(
-    project="timestep-free-diffusion-model",
-    entity="fenneishi",
-    name=save_model_name(f'scratch')[0:-4],
-    mode="disabled",
-    config={
-        "learning_rate": learning_rate,
-        "batch_size": batch_size,
-        "epochs": epochs,
-        "T": T,
-        'schedule': Schedule.__name__,
-        "schedule_fn": schedule_fn.__name__,
-        "save_and_sample_every": save_and_evaluate_every,
-        "image_size": image_size,
-        "channels": channels,
-        "how_to_t": str(how_to_t.value),
-        "pretrain_model_name": pretrain_model_name,
-        "save_model_name": save_model_name(),
-        "t_signal_type": t_signal_type.value,
-        'start_save_and_evaluate': start_save_and_evaluate
-    },
-)
-
-print(
-    f'######################################\n'
-    f'run_id: {run.id}\n'
-    f'run_name: {run.name}\n'
-    f'run_config: \n' + '\n'.join([f' * {key}: {value}' for key, value in run.config.items()]) + '\n'
-                                                                                            f'######################################'
-)
-
-schedule = Schedule(schedule_fn=schedule_fn, T=T)
 model = Unet(
     dim=image_size,
     channels=channels,
@@ -70,24 +22,26 @@ dataloader = build_data(batch_size=batch_size, train=True)
 
 
 def call_model(*args, **kwargs):
-    predicted: torch.Tensor = model(*args, **kwargs)
+    _predicted: torch.Tensor = model(*args, **kwargs)
     if how_to_t == HowTo_t.predict_t:
-        predicted_noise, predicted_t = predicted[:, :-1, :, :], predicted[:, -1:, :, :]
-        predicted = predicted_noise
+        _predicted_noise, _predicted_t = _predicted[:, :-1, :, :], _predicted[:, -1:, :, :]
+        _predicted = _predicted_noise
         # print(f"predicted_t: {1- (predicted_t.mean().item() + 1) / 2}")
-    return predicted
+    return _predicted
 
 
 step = 0
 
 
 def evaluate_model():
+    global step
     model.eval()
     evaluate(call_model, step)
     model.train()
 
 
 def save_model():
+    global step
     print(f"Saving model at step {step}")
     model_name = save_model_name(step)
     torch.save(model.state_dict(), model_name)
@@ -96,7 +50,7 @@ def save_model():
 
 for epoch in tqdm(range(epochs), desc="epochs", colour='green'):
     print(f"epoch {epoch},step {step}")
-    for x_0, _ in tqdm(dataloader, desc=f"epoch {epoch}", leave=True):
+    for x_0, _ in tqdm(dataloader, desc=f"epoch {epoch}"):
         optimizer.zero_grad()
         # class labels
         # _ = (_ + 1).to(device)
@@ -113,7 +67,7 @@ for epoch in tqdm(range(epochs), desc="epochs", colour='green'):
         t = schedule.uniform_t_sample(b, device=device)
 
         # X_t
-        noise = noise_like(x_0)
+        noise = torch.randn_like(x_0)
         X_t = schedule.q_sample(x_0=x_0, t=t, noise=noise)
 
         # predict

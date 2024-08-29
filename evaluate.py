@@ -1,41 +1,22 @@
 import os
 import shutil
-import subprocess
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 import warnings
 from typing import Callable
 import asyncio
-from pathlib import Path
 import aiofiles
 import aiofiles.os
-from tqdm.asyncio import tqdm_asyncio
 
-warnings.filterwarnings("ignore", category=UserWarning, module='torch_fidelity.datasets')
-
-import torch
-import torch_fidelity
 from einops import repeat
 from torch.utils.data import Dataset
 from torchvision.utils import save_image
 from tqdm import tqdm
-import wandb
 
-# from dataset_CIFAR10 import test_data, training_data, channels, image_size
-from dataset_FashionMNIST import test_data, channels, image_size
-
-# from schedule import ScheduleDDPM as Schedule
-from schedule import ScheduleDDIM as Schedule
+warnings.filterwarnings("ignore", category=UserWarning, module='torch_fidelity.datasets')
+import torch_fidelity
 from utils import num_to_groups, clamp
-from model import how_to_t, t_signal_type
 
-evaluate_folder = f'./evaluate_{how_to_t.value}_{t_signal_type.value}'
-evaluate_folder = Path(evaluate_folder).absolute()
-fake_folder = evaluate_folder / 'fake'
-real_folder = evaluate_folder / 'real'
-FakeImgsCount = 10
-
-vmeory = round(torch.cuda.get_device_properties(0).total_memory / (1024 ** 3))
+from config import *
 
 del_pbar = None
 
@@ -71,21 +52,9 @@ async def delete_files_in_directory(directory_path):
     print(f"Deleted all files in {directory_path}")
 
 
-asyncio.run(delete_files_in_directory(fake_folder))
-
-
 @torch.no_grad()
 def build_fake_data(model: torch.nn.Module | Callable):
     assert torch.cuda.is_available()
-
-    # config
-    schedule_fn = Schedule.linear_beta_schedule
-    T = 4000
-
-    # schedule
-    schedule = Schedule(schedule_fn=schedule_fn, T=T)
-
-
 
     # batch sizes
     batch_sizes = num_to_groups(FakeImgsCount, 1024)
@@ -94,12 +63,10 @@ def build_fake_data(model: torch.nn.Module | Callable):
 
     # generate images
     def gen_imgs(batch_size: int) -> list[torch.Tensor]:
-        time_steps_prev, time_steps = schedule.build_sub_steps(steps=100, method='linear')
-
         res = schedule.p_sample_loop(
             model=model,
             shape=(batch_size, channels, image_size, image_size),
-            eta=0.0,
+            eta=eta,
             time_steps=time_steps,
             time_steps_prev=time_steps_prev,
         )
@@ -210,6 +177,7 @@ def evaluate(model: torch.nn.Module | Callable, step: int = 0):
         asyncio.run(delete_files_in_directory(fake_folder))
 
 
+asyncio.run(delete_files_in_directory(fake_folder))
 if __name__ == "__main__":
     from model import Unet, how_to_t, HowTo_t
 

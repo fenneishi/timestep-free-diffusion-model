@@ -5,7 +5,13 @@ import wandb
 import warnings
 from pathlib import Path
 from model import save_model_name, pretrain_model_name, how_to_t, t_signal_type
-from dataset_FashionMNIST import build_data, image_size, channels
+from dataset_FashionMNIST import image_size, channels,training_data,test_data
+
+# Argument Parser
+import argparse
+parser = argparse.ArgumentParser(description="Process some parameters.")
+parser.add_argument('--device', type=str, required=True, help="The parameter to process", default="cuda")
+args = parser.parse_args()
 
 # Schedule Config
 # from schedule import ScheduleDDPM as Schedule
@@ -21,7 +27,7 @@ time_steps_prev, time_steps = schedule.build_sub_steps(sample_T=sample_T, sample
 
 # Training Config
 assert torch.cuda.is_available()
-device = "cuda"
+device = torch.device(args.device)
 epochs = 22  # every 1 epoch has 468 steps when batch_size=128 in FashionMNIST
 batch_size = 128
 learning_rate = 1e-3
@@ -35,7 +41,7 @@ real_folder = evaluate_folder / 'real'
 FakeImgsCount = 10000
 
 vmeory = round(torch.cuda.get_device_properties(0).total_memory / (1024 ** 3))
-warnings.filterwarnings("ignore", category=UserWarning, module='torch_fidelity.datasets')
+
 wandb.login()
 run = wandb.init(
     project="timestep-free-diffusion-model",
@@ -85,6 +91,6 @@ print(
     f'######################################\n'
     f'run_id: {run.id}\n'
     f'run_name: {run.name}\n'
-    f'run_config: \n {json.dumps(run.config, indent=4,ensure_ascii=False)}'
+    f'run_config: \n {json.dumps(run.config, indent=4, ensure_ascii=False)}'
     f'\n######################################'
 )
