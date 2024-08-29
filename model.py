@@ -1,5 +1,5 @@
 import math
-from enum import Enum
+
 from inspect import isfunction
 from functools import partial
 import datetime
@@ -14,38 +14,7 @@ from torch import nn, einsum
 import torch.nn.functional as F
 
 
-class HowTo_t(Enum):
-    input_t = 'input_t'  # input t
-    input_no_t = 'no_t'  # don't input t
-    predict_t = 'predict_t'  # don't input t and predict t
-
-
-class T_Signal_Type(Enum):
-    zero = 'zero'
-    left = 'left'
-    middle = 'middle'
-    right = 'right'
-    none = ''
-
-
-how_to_t = HowTo_t.input_t
-t_signal_type = T_Signal_Type.none
-pretrain_model_name = None
-
-# for logging and saving model
-timezone = pytz.timezone('Asia/Shanghai')
-today = datetime.datetime.now(timezone).date().strftime("%m%d")
-hourmin = datetime.datetime.now(timezone).strftime("%H%M")
-
-
-def save_model_name(step: int | str | None = None):
-    if step is None:
-        return f'FashionMNIST_{how_to_t.value}_{t_signal_type.value}_{today}_{hourmin}.pth'
-    elif isinstance(step, int):
-        return f'FashionMNIST_{how_to_t.value}_{t_signal_type.value}_{today}_{hourmin}_step{step}.pth'
-    else:
-        return f'FashionMNIST_{how_to_t.value}_{t_signal_type.value}_{today}_{hourmin}_{step}.pth'
-
+from config import how_to_t, T_Signal_Type,t_signal_type,HowTo_t
 
 def exists(x):
     return x is not None

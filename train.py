@@ -1,5 +1,4 @@
 from torch.optim import Adam
-from dataset_FashionMNIST import build_data
 from loss import loss_f
 from model import Unet, HowTo_t
 from tqdm import tqdm
