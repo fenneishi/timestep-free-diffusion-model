@@ -195,20 +195,20 @@ class ScheduleDDPM(ScheduleBase):
         mean = alphas_sqrt_recip__t * (
                 x_t - (beta__t / alphasCumprod_oneMinus_sqrt__t) * model(x_t, t)
         )
-        mean2 = (
-                (
-                    coff0 := alphas_sqrt_recip__t
-                ) * x_t
-                +
-                (
-                    coff1 := -alphas_sqrt_recip__t * (beta__t / alphasCumprod_oneMinus_sqrt__t)
-                ) * model(x_t, t)
-        )
+        # mean2 = (
+        #         (
+        #             coff0 := alphas_sqrt_recip__t
+        #         ) * x_t
+        #         +
+        #         (
+        #             coff1 := -alphas_sqrt_recip__t * (beta__t / alphasCumprod_oneMinus_sqrt__t)
+        #         ) * model(x_t, t)
+        # )
 
         # 3.sample from the x_{t-1} distribution
         noise = torch.randn_like(x_t)
         x_t_prev = mean + std * noise  # parameterization sampling method
-        return x_t_prev.to(x_t.dtype), coff0, coff1
+        return x_t_prev.to(x_t.dtype)  # , coff0, coff1
 
     @torch.no_grad()
     def p_sample_loop(
@@ -222,12 +222,14 @@ class ScheduleDDPM(ScheduleBase):
         # x = noise_(shape, device=device)
         x = torch.randn(shape, device=device)
         res = []
-        coff0_s, coff1_s = [], []
+        # coff0_s, coff1_s = [], []
         for t in tqdm(steps, 'sampling loop time step'):
-            x, coff0, coff1 = self.p_sample(model, x, t)
-            coff0_s.append(coff0[0].item())
-            coff1_s.append(coff1[0].item())
+            x = self.p_sample(model, x, t)
             res.append(x)
+            # x, coff0, coff1 = self.p_sample(model, x, t)
+            # coff0_s.append(coff0[0].item())
+            # coff1_s.append(coff1[0].item())
+            # res.append(x)
 
         # epio = 1e-3
         # while True:
@@ -237,7 +239,7 @@ class ScheduleDDPM(ScheduleBase):
 
         # plt the coefficient
 
-        return res, coff0_s, coff1_s
+        return res  # , coff0_s, coff1_s
 
     @classmethod
     def plot_noise_levels(cls):
@@ -405,7 +407,7 @@ class ScheduleDDIM(ScheduleDDPM):
         )
         noise = torch.randn_like(x_t)
         x_t_prev = mean + std * noise  # parameterization sampling method
-        return x_t_prev.to(x_t.dtype), coefficient0, coefficient1
+        return x_t_prev.to(x_t.dtype)  # , coefficient0, coefficient1
 
     @torch.no_grad()
     def build_sub_steps(self, steps: int = 50, method="linear") -> tuple[Any, Any]:
@@ -445,9 +447,9 @@ class ScheduleDDIM(ScheduleDDPM):
 
         x = torch.randn(shape, device=device)
         res = []
-        coefficient0_s, coefficient1_s = [], []
+        # coefficient0_s, coefficient1_s = [], []
         for prev_step, step in tqdm(zip(time_steps_prev, time_steps), 'sampling loop time step'):
-            x, coefficient0, coefficient1 = self.p_sample(
+            x = self.p_sample(
                 model=model,
                 x_t=x,
                 step=step,
@@ -455,10 +457,18 @@ class ScheduleDDIM(ScheduleDDPM):
                 eta=eta
             )
             res.append(x)
-            coefficient0_s.append(coefficient0[0].item())
-            coefficient1_s.append(coefficient1[0].item())
+            # x, coefficient0, coefficient1 = self.p_sample(
+            #     model=model,
+            #     x_t=x,
+            #     step=step,
+            #     prev_step=prev_step,
+            #     eta=eta
+            # )
+            # coefficient0_s.append(coefficient0[0].item())
+            # coefficient1_s.append(coefficient1[0].item())
+            # res.append(x)
 
-        return res, coefficient0_s, coefficient1_s
+        return res  # , coefficient0_s, coefficient1_s
 
     @classmethod
     def plot_noise_levels(cls):
@@ -538,19 +548,20 @@ class ScheduleDDIM(ScheduleDDPM):
         if res_ddpm is None:
             res_ddpm, coeff0_s_ddpm, coeff1_s_ddpm, std_update_cum_ddpm = ScheduleDDPM.debug_p_sample_loop()
 
-        diff_coeff0 = [abs(a - b) for a, b in zip(coeff0_s_ddpm, coefficient0_s)]
-        diff_coeff1 = [abs(a - b) for a, b in zip(coeff1_s_ddpm, coefficient1_s)]
-        diff_std_update = [abs(a - b) for a, b in zip(std_update_cum_ddpm, std_update_cum)]
+        if sub_steps == 1000:
+            diff_coeff0 = [abs(a - b) for a, b in zip(coeff0_s_ddpm, coefficient0_s)]
+            diff_coeff1 = [abs(a - b) for a, b in zip(coeff1_s_ddpm, coefficient1_s)]
+            diff_std_update = [abs(a - b) for a, b in zip(std_update_cum_ddpm, std_update_cum)]
 
-        is_zero = functools.partial(lambda f, epsilon=1e-6: abs(f) < epsilon)
+            is_zero = functools.partial(lambda f, epsilon=1e-6: abs(f) < epsilon)
 
-        for i, (c0, c1, std) in enumerate(zip(diff_coeff0, diff_coeff1, diff_std_update)):
-            if not is_zero(c0):
-                print(f'c0 diff at {i} is {c0}')
-            if not is_zero(c1):
-                print(f'c1 diff at {i} is {c1}')
-            if not is_zero(std, 1e-4):
-                print(f'std diff at {i} is {std}')
+            for i, (c0, c1, std) in enumerate(zip(diff_coeff0, diff_coeff1, diff_std_update)):
+                if not is_zero(c0):
+                    print(f'c0 diff at {i} is {c0}')
+                if not is_zero(c1):
+                    print(f'c1 diff at {i} is {c1}')
+                if not is_zero(std, 1e-4):
+                    print(f'std diff at {i} is {std}')
 
         plt.plot([i + 1 for i in range(1000)], std_update_cum_ddpm, label='std_update_cum_ddpm')
         plt.plot(time_steps.tolist(), std_update_cum, label='std_update_cum_ddim')
@@ -571,12 +582,13 @@ if __name__ == "__main__":
         std_update_cum_res = []
         sub_steps_list = [50, 100, 500, 1000]
         for sub_steps in sub_steps_list:
-            _, __, ___, std_update_cum, time_steps = ScheduleDDIM.debug_p_sample_loop(sub_steps=sub_steps,eta=eta)
+            _, __, ___, std_update_cum, time_steps = ScheduleDDIM.debug_p_sample_loop(sub_steps=sub_steps, eta=eta)
             std_update_cum_res.append((std_update_cum, time_steps))
 
         for std_update_cum, time_steps in std_update_cum_res:
             plt.plot(time_steps, std_update_cum, label=f'std_update_cum_{len(time_steps)}')
-        plt.plot([i + 1 for i in range(1000)], std_update_cum_ddpm, label='std_update_cum_ddpm',color='black', linestyle='--')
+        plt.plot([i + 1 for i in range(1000)], std_update_cum_ddpm, label='std_update_cum_ddpm', color='black',
+                 linestyle='--')
         plt.legend()
         plt.savefig(f'std_update_cum_all_{eta}.png')
         plt.show()
