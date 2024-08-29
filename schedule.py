@@ -313,6 +313,18 @@ class ScheduleDDPM(ScheduleBase):
 
 
 class ScheduleDDIM(ScheduleDDPM):
+    """
+    Compared to DDPM, DDIM requires more training to achieve the same FID score. The core reason is that during the
+    sampling process, DDIM has significantly fewer iterations, which means the neural network model needs to have
+    stronger denoising capabilities. Specifically, assuming the original noise consists of 1000 parts, the denoising
+    capability required by the model in DDPM is to reduce noise by more than 1 part, and by iterating the model 1000
+    times, the noise can be effectively removed. However, for DDIM, since the total number of iterations is only 100,
+    the model's denoising capability needs to reduce noise by more than 10 parts to work effectively. To enhance the
+    model's denoising ability, more training is required rather than improving the schedule. The schedule ensures that
+    the results from multiple iterations using the model for denoising are effectively accumulated, aiming to achieve
+    an outcome as close to 1+1=2 as possible.
+    """
+
     schedule_fn_default = ScheduleBase.linear_beta_schedule
     T_default = 4000
     sample_T_default = 100

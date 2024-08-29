@@ -94,8 +94,15 @@ def build_fake_data(model: torch.nn.Module | Callable):
         shutil.rmtree(fake_folder)
     os.makedirs(fake_folder, exist_ok=False)
     save_tasks = [(f'gen_{i:07d}', img) for i, img in enumerate(fake_imgs)]
-    for name, img in tqdm(save_tasks, desc=f'Saving images to {fake_folder}'):
-        save_image(img, os.path.join(fake_folder, f'{name}.png'))
+    # for name, img in tqdm(save_tasks, desc=f'Saving images to {fake_folder}'):
+    #     save_image(img, os.path.join(fake_folder, f'{name}.png'))
+
+    def save_img(name_img_tuple):
+        name, im = name_img_tuple
+        save_image(im, os.path.join(fake_folder, f'{name}.png'))
+
+    with ThreadPoolExecutor(max_workers=100) as executor:
+        executor.map(save_img, tqdm(save_tasks, desc=f'Saving fake images to {fake_folder}'))
 
     return fake_imgs
 

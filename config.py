@@ -5,12 +5,14 @@ import wandb
 import warnings
 from pathlib import Path
 from model import save_model_name, pretrain_model_name, how_to_t, t_signal_type
-from dataset_FashionMNIST import image_size, channels,training_data,test_data
+from dataset_FashionMNIST import image_size, channels, test_data
 
 # Argument Parser
 import argparse
+
 parser = argparse.ArgumentParser(description="Process some parameters.")
-parser.add_argument('--device', type=str, required=True, help="The parameter to process", default="cuda")
+parser.add_argument('--device', type=str, required=False, help="The parameter to process", default="cuda")
+parser.add_argument('--pretrain_model_name', type=str, required=False, help="The parameter to process",default=None)
 args = parser.parse_args()
 
 # Schedule Config
@@ -23,19 +25,21 @@ sample_T = 100
 sample_T_method = "linear"
 eta = 0.0
 schedule = Schedule(schedule_fn=schedule_fn, T=T)
-time_steps_prev, time_steps = schedule.build_sub_steps(sample_T=sample_T, sample_T_method=sample_T_method, eta=eta)
+time_steps_prev, time_steps = schedule.build_sub_steps(steps=sample_T, method=sample_T_method)
 
 # Training Config
 assert torch.cuda.is_available()
 device = torch.device(args.device)
-epochs = 22  # every 1 epoch has 468 steps when batch_size=128 in FashionMNIST
+epochs = 450  #22 # every 1 epoch has 468 steps when batch_size=128 in FashionMNIST
 batch_size = 128
 learning_rate = 1e-3
 save_and_evaluate_every = 10000 // 1
 start_save_and_evaluate = 10000
 
+pretrain_model_name = args.pretrain_model_name if args.pretrain_model_name is not None else pretrain_model_name
+
 # Evaluate Config
-evaluate_folder = Path(f'.evaluate/evaluate_{how_to_t.value}_{t_signal_type.value}').absolute()
+evaluate_folder = Path(f'./evaluate/evaluate_{how_to_t.value}_{t_signal_type.value}').absolute()
 fake_folder = evaluate_folder / 'fake'
 real_folder = evaluate_folder / 'real'
 FakeImgsCount = 10000
@@ -91,6 +95,6 @@ print(
     f'######################################\n'
     f'run_id: {run.id}\n'
     f'run_name: {run.name}\n'
-    f'run_config: \n {json.dumps(run.config, indent=4, ensure_ascii=False)}'
+    f'run_config: \n {json.dumps(run.config.as_dict(), indent=4, ensure_ascii=False)}'
     f'\n######################################'
 )

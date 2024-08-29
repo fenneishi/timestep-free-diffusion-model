@@ -1,4 +1,3 @@
-
 from torch.optim import Adam
 from dataset_FashionMNIST import build_data
 from loss import loss_f
@@ -15,7 +14,7 @@ model = Unet(
 ).to(device)
 
 if pretrain_model_name is not None:
-    model.load_state_dict(torch.load(pretrain_model_name))
+    model.load_state_dict(torch.load(pretrain_model_name, weights_only=False))
 
 optimizer = Adam(model.parameters(), lr=learning_rate)
 dataloader = build_data(batch_size=batch_size, train=True)
