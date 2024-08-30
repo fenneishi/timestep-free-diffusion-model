@@ -1,4 +1,7 @@
+import os.path
 from torch.optim import Adam
+from torch import nn
+from torchinfo import summary
 from loss import loss_f
 from model import Unet, HowTo_t
 from tqdm import tqdm
@@ -8,12 +11,45 @@ from config import *
 model = Unet(
     dim=image_size,
     channels=channels,
-    dim_mults=(1, 2, 4,),
-    out_dim=channels + 1 if how_to_t == HowTo_t.predict_t else None
+    dim_mults=(8, 16, 32),  # (1, 2, 4),  # (8, 16, 32),
+    out_dim=channels + 1 if how_to_t == HowTo_t.predict_t else None,
+    kernel_size=3,
 ).to(device)
 
-if pretrain_model_name is not None:
-    model.load_state_dict(torch.load(pretrain_model_name, weights_only=False))
+model_statistics = summary(
+    model,
+    device=device,
+    input_data=(
+        torch.randn(1, channels, image_size, image_size, device=device),
+        schedule.uniform_t_sample(1, device=device),
+        torch.randn(1, channels, image_size, image_size, device=device),
+    )
+)
+
+run.config.update({
+    "model": (
+        model_profile :=
+        {
+            **run.config.train['model'],
+            "Total params": model_statistics.format_output_num(model_statistics.total_params,
+                                                               model_statistics.formatting.params_units),
+            "Trainable params": model_statistics.format_output_num(model_statistics.trainable_params,
+                                                                   model_statistics.formatting.params_units),
+            "Non-trainable params": model_statistics.format_output_num(
+                model_statistics.total_params - model_statistics.trainable_params,
+                model_statistics.formatting.params_units),
+            "Total mult-adds": model_statistics.format_output_num(model_statistics.total_mult_adds,
+                                                                  model_statistics.formatting.macs_units),
+            "Input size (MB)": model_statistics.to_megabytes(model_statistics.total_input),
+            "Forward/backward pass size (MB)": model_statistics.to_megabytes(model_statistics.total_output_bytes),
+            "Params size (MB)": model_statistics.to_megabytes(model_statistics.total_param_bytes),
+            "Estimated Total Size (MB)": model_statistics.to_megabytes(
+                model_statistics.total_input + model_statistics.total_output_bytes + model_statistics.total_param_bytes),
+        }
+    )
+})
+
+model.load_state_dict(torch.load(pretrain_model_name, weights_only=False))
 
 optimizer = Adam(model.parameters(), lr=learning_rate)
 dataloader = build_data(batch_size=batch_size, train=True)
@@ -42,8 +78,11 @@ def save_model():
     global step
     print(f"Saving model at step {step}")
     model_name = save_model_name(step)
-    torch.save(model.state_dict(), model_name)
-    print(f"Model saved at {model_name}")
+    model_path = os.path.join(
+        save_model_dir, model_name
+    )
+    torch.save(model.state_dict(), model_path)
+    print(f"Model saved at {model_path}")
 
 
 for epoch in tqdm(range(epochs), desc="epochs", colour='green'):

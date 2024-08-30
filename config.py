@@ -1,4 +1,5 @@
 import json
+import os
 from enum import Enum
 import datetime
 from pathlib import Path
@@ -9,7 +10,7 @@ import wandb
 import pytz
 
 ####################################
-#            Argument Parser       #
+#         Argument Parser          #
 ####################################
 parser = argparse.ArgumentParser(description="Process some parameters.")
 parser.add_argument('--device', type=str, required=False, help="The parameter to process", default="cuda")
@@ -68,7 +69,7 @@ epochs = 450  # 22 # every 1 epoch has 468 steps when batch_size=128 in FashionM
 batch_size = 128
 learning_rate = 1e-3
 save_and_evaluate_every = 10000 // 1
-start_save_and_evaluate = 10  # 000
+start_save_and_evaluate = 1000  # 0
 
 ####################################
 #           Model Config           #
@@ -78,6 +79,9 @@ pretrain_model_name = args.pretrain_model_name
 timezone = pytz.timezone('Asia/Shanghai')
 today = datetime.datetime.now(timezone).date().strftime("%m%d")
 hourmin = datetime.datetime.now(timezone).strftime("%H%M")
+
+
+os.makedirs(save_model_dir := Path(f'./checkpoint/{dataset_name}/{how_to_t.value}/{t_signal_type.value}/{today}').absolute(), exist_ok=True)
 
 
 def save_model_name(step: int | str | None = None):
@@ -90,7 +94,7 @@ def save_model_name(step: int | str | None = None):
 
 
 ####################################
-#           Evaluate Config        #
+#          Evaluate Config         #
 ####################################
 evaluate_folder = Path(f'./evaluate/{dataset_name}/{how_to_t.value}/{t_signal_type.value}').absolute()
 fake_folder = evaluate_folder / 'fake'

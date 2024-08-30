@@ -13,8 +13,8 @@ import torch
 from torch import nn, einsum
 import torch.nn.functional as F
 
+from config import how_to_t, T_Signal_Type, t_signal_type, HowTo_t
 
-from config import how_to_t, T_Signal_Type,t_signal_type,HowTo_t
 
 def exists(x):
     return x is not None
@@ -100,9 +100,10 @@ class WeightStandardizedConv2d(nn.Conv2d):
 
 
 class Block(nn.Module):
-    def __init__(self, dim, dim_out, groups=8):
+    def __init__(self, dim, dim_out, groups=8, kernel_size=3):
         super().__init__()
-        self.proj = WeightStandardizedConv2d(dim, dim_out, 3, padding=1)
+        padding = (kernel_size - 1) // 2  # padding = (kernel_size - 1) // 2 to keep the spatial resolution
+        self.proj = WeightStandardizedConv2d(dim, dim_out, kernel_size, padding=padding)
         self.norm = nn.GroupNorm(groups, dim_out)
         self.act = nn.SiLU()
 
@@ -121,7 +122,7 @@ class Block(nn.Module):
 class ResnetBlock(nn.Module):
     """https://arxiv.org/abs/1512.03385"""
 
-    def __init__(self, dim, dim_out, *, time_emb_dim=None, groups=8):
+    def __init__(self, dim, dim_out, *, time_emb_dim=None, groups=8, kernel_size=3):
         super().__init__()
         self.mlp = (
             nn.Sequential(nn.SiLU(), nn.Linear(time_emb_dim, dim_out * 2))
@@ -129,8 +130,8 @@ class ResnetBlock(nn.Module):
             else None
         )
 
-        self.block1 = Block(dim, dim_out, groups=groups)
-        self.block2 = Block(dim_out, dim_out, groups=groups)
+        self.block1 = Block(dim, dim_out, groups=groups, kernel_size=kernel_size)
+        self.block2 = Block(dim_out, dim_out, groups=groups, kernel_size=kernel_size)
         self.res_conv = nn.Conv2d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
 
     def forward(self, x, time_emb=None):
@@ -148,9 +149,12 @@ class ResnetBlock(nn.Module):
 class Attention(nn.Module):
     def __init__(self, dim, heads=4, dim_head=32):
         super().__init__()
+        # hidden_dim = dim_head * heads
+        assert dim % dim_head == 0, "dim must be divisible by dim_head"
+        hidden_dim = dim
+        heads = hidden_dim // dim_head
         self.scale = dim_head ** -0.5
         self.heads = heads
-        hidden_dim = dim_head * heads
         self.to_qkv = nn.Conv2d(dim, hidden_dim * 3, 1, bias=False)
         self.to_out = nn.Conv2d(hidden_dim, dim, 1)
 
@@ -174,9 +178,12 @@ class Attention(nn.Module):
 class LinearAttention(nn.Module):
     def __init__(self, dim, heads=4, dim_head=32):
         super().__init__()
+        # hidden_dim = dim_head * heads
+        assert dim % dim_head == 0, "dim must be divisible by dim_head"
+        hidden_dim = dim
+        heads = hidden_dim // dim_head
         self.scale = dim_head ** -0.5
         self.heads = heads
-        hidden_dim = dim_head * heads
         self.to_qkv = nn.Conv2d(dim, hidden_dim * 3, 1, bias=False)
 
         self.to_out = nn.Sequential(nn.Conv2d(hidden_dim, dim, 1),
@@ -275,6 +282,8 @@ class Unet(nn.Module):
             channels=3,
             self_condition=False,
             resnet_block_groups=4,
+            kernel_size=3,
+
     ):
         super().__init__()
 
@@ -289,7 +298,7 @@ class Unet(nn.Module):
         dims = [init_dim, *map(lambda m: dim * m, dim_mults)]
         in_out = list(zip(dims[:-1], dims[1:]))
 
-        block_klass = partial(ResnetBlock, groups=resnet_block_groups)
+        block_klass = partial(ResnetBlock, groups=resnet_block_groups, kernel_size=kernel_size)
 
         # time embeddings
         time_dim = dim * 4
