@@ -71,7 +71,7 @@ learning_rate = 1e-3
 save_and_evaluate_every = 10000 // 1
 start_save_and_evaluate = 1000  # 0
 
-####################################
+####################################2
 #           Model Config           #
 ####################################
 pretrain_model_name = args.pretrain_model_name
@@ -111,7 +111,7 @@ run = wandb.init(
     project="timestep-free-diffusion-model",
     entity="fenneishi",
     name=save_model_name(f'scratch')[0:-4],
-    mode="disabled",
+    # mode="disabled",
     config={
         "schedule": {
             'schedule': Schedule.__name__,

@@ -20,9 +20,9 @@ model_statistics = summary(
     model,
     device=device,
     input_data=(
-        torch.randn(1, channels, image_size, image_size, device=device),
-        schedule.uniform_t_sample(1, device=device),
-        torch.randn(1, channels, image_size, image_size, device=device),
+        torch.randn(batch_size, channels, image_size, image_size, device=device),
+        schedule.uniform_t_sample(batch_size, device=device),
+        torch.randn(batch_size, channels, image_size, image_size, device=device),
     )
 )
 
@@ -49,7 +49,8 @@ run.config.update({
     )
 })
 
-model.load_state_dict(torch.load(pretrain_model_name, weights_only=False))
+if pretrain_model_name is not None:
+    model.load_state_dict(torch.load(pretrain_model_name, weights_only=False))
 
 optimizer = Adam(model.parameters(), lr=learning_rate)
 dataloader = build_data(batch_size=batch_size, train=True)
