@@ -1,4 +1,6 @@
 import os.path
+
+import torch
 from torch.optim import Adam
 from torch import nn
 from torchinfo import summary
@@ -16,38 +18,38 @@ model = Unet(
     kernel_size=3,
 ).to(device)
 
-model_statistics = summary(
-    model,
-    device=device,
-    input_data=(
-        torch.randn(batch_size, channels, image_size, image_size, device=device),
-        schedule.uniform_t_sample(batch_size, device=device),
-        torch.randn(batch_size, channels, image_size, image_size, device=device),
-    )
-)
+# model_statistics = summary(
+#     model,
+#     device=device,
+#     input_data=(
+#         torch.randn(batch_size, channels, image_size, image_size, device=device),
+#         schedule.uniform_t_sample(batch_size, device=device),
+#         torch.randn(batch_size, channels, image_size, image_size, device=device),
+#     )
+# )
 
-run.config.update({
-    "model": (
-        model_profile :=
-        {
-            **run.config.train['model'],
-            "Total params": model_statistics.format_output_num(model_statistics.total_params,
-                                                               model_statistics.formatting.params_units),
-            "Trainable params": model_statistics.format_output_num(model_statistics.trainable_params,
-                                                                   model_statistics.formatting.params_units),
-            "Non-trainable params": model_statistics.format_output_num(
-                model_statistics.total_params - model_statistics.trainable_params,
-                model_statistics.formatting.params_units),
-            "Total mult-adds": model_statistics.format_output_num(model_statistics.total_mult_adds,
-                                                                  model_statistics.formatting.macs_units),
-            "Input size (MB)": model_statistics.to_megabytes(model_statistics.total_input),
-            "Forward/backward pass size (MB)": model_statistics.to_megabytes(model_statistics.total_output_bytes),
-            "Params size (MB)": model_statistics.to_megabytes(model_statistics.total_param_bytes),
-            "Estimated Total Size (MB)": model_statistics.to_megabytes(
-                model_statistics.total_input + model_statistics.total_output_bytes + model_statistics.total_param_bytes),
-        }
-    )
-})
+# run.config.update({
+#     "model": (
+#         model_profile :=
+#         {
+#             **run.config.train['model'],
+#             "Total params": model_statistics.format_output_num(model_statistics.total_params,
+#                                                                model_statistics.formatting.params_units),
+#             "Trainable params": model_statistics.format_output_num(model_statistics.trainable_params,
+#                                                                    model_statistics.formatting.params_units),
+#             "Non-trainable params": model_statistics.format_output_num(
+#                 model_statistics.total_params - model_statistics.trainable_params,
+#                 model_statistics.formatting.params_units),
+#             "Total mult-adds": model_statistics.format_output_num(model_statistics.total_mult_adds,
+#                                                                   model_statistics.formatting.macs_units),
+#             "Input size (MB)": model_statistics.to_megabytes(model_statistics.total_input),
+#             "Forward/backward pass size (MB)": model_statistics.to_megabytes(model_statistics.total_output_bytes),
+#             "Params size (MB)": model_statistics.to_megabytes(model_statistics.total_param_bytes),
+#             "Estimated Total Size (MB)": model_statistics.to_megabytes(
+#                 model_statistics.total_input + model_statistics.total_output_bytes + model_statistics.total_param_bytes),
+#         }
+#     )
+# })
 
 if pretrain_model_name is not None:
     model.load_state_dict(torch.load(pretrain_model_name, weights_only=False))
@@ -106,10 +108,12 @@ for epoch in tqdm(range(epochs), desc="epochs", colour='green'):
 
         # X_t
         noise = torch.randn_like(x_0)
+        t = torch.ones_like(t)
         X_t = schedule.q_sample(x_0=x_0, t=t, noise=noise)
 
         # predict
-        predicted: torch.Tensor = model(X_t, t)
+        with torch.no_grad():
+            predicted: torch.Tensor = model(X_t, t)
         # predicted: torch.Tensor = model(X_t, _)
         if how_to_t == HowTo_t.predict_t:
             predicted_noise, predicted_t = predicted[:, :-1, :, :], predicted[:, -1:, :, :]

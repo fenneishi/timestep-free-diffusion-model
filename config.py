@@ -66,7 +66,7 @@ time_steps_prev, time_steps = schedule.build_sub_steps(steps=sample_T, method=sa
 assert torch.cuda.is_available()
 device = torch.device(args.device)
 epochs = 450  # 22 # every 1 epoch has 468 steps when batch_size=128 in FashionMNIST
-batch_size = 128
+batch_size = 1
 learning_rate = 1e-3
 save_and_evaluate_every = 10000 // 1
 start_save_and_evaluate = 1000  # 0
@@ -75,6 +75,7 @@ start_save_and_evaluate = 1000  # 0
 #           Model Config           #
 ####################################
 pretrain_model_name = args.pretrain_model_name
+# pretrain_model_name = 'CIFAR10_input_t__0830_1820_step20000.pth'
 
 timezone = pytz.timezone('Asia/Shanghai')
 today = datetime.datetime.now(timezone).date().strftime("%m%d")
@@ -111,7 +112,8 @@ run = wandb.init(
     project="timestep-free-diffusion-model",
     entity="fenneishi",
     name=save_model_name(f'scratch')[0:-4],
-    # mode="disabled",
+    # if windows, set mode="disabled"
+    mode="disabled" if os.name == 'nt' else "online",
     config={
         "schedule": {
             'schedule': Schedule.__name__,

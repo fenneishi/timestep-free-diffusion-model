@@ -386,10 +386,12 @@ class Unet(nn.Module):
             h.append(x)
 
             x = block2(x, t)
+            h.append(x) # todo del
             x = attn(x)
             h.append(x)
 
             x = downsample(x)
+            h.append(x) # todo del
 
         x = self.mid_block1(x, t)
         x = self.mid_attn(x)
